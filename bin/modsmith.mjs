@@ -43,8 +43,10 @@ const USAGE = `modsmith ${VERSION} — 把 Fabric mod jar 变成机器人能用�
       --mc-version <ver>     协议版本，默认 1.21.1
       --x/--y/--z <n>        测试用的空地中心，默认 400/200/400
       --place               额外做一遍"真实放置"校准（给 setblock 改不动属性的方块）
+      --resume               接着上次量：已有结果里量全的方块跳过，适合断点续跑
       --blocks-only         只量方块（配合 --ids 复用已有的物品结果）
       --items-only          只量物品（复用 --ids 里已有的方块结果，省时间）
+      --no-selfcheck         跳过量完后的自检（不推荐：错 id 会被写进清单）
       --debug-items         逐件打印槽位与 type，排查物品校准用
 
   modsmith verify <manifest.json> [选项]
@@ -65,14 +67,19 @@ const USAGE = `modsmith ${VERSION} — 把 Fabric mod jar 变成机器人能用�
       --rounds <n>           最多重试几轮，默认 3
       --port / --rcon-password   给了就上服务器验证站点声明（强烈建议）
       --no-probe             不做实测验证，只做结构校验
+      --timeout <ms>         每次右键等多久，默认 3000
       --mods-dir <dir>       注册表注入用，默认 ./mods
       模型走环境变量：MODSMITH_BASE_URL / MODSMITH_API_KEY / MODSMITH_MODEL
 
   modsmith sidecar <manifest.json> [选项]
-      给 sidecar-recipe 型站点生成侧车模组源码（需要 Gradle 编译）。
+      给 sidecar-recipe 型站点生成侧车模组源码，编译通过后才把命令写回清单。
 
-      --out <dir>            生成到哪个目录
+      --out <dir>            生成到哪个目录（默认 ./sidecars）
       --station <id>         只生成某一个站点
+      --op-level <n>         命令要求的权限等级，默认 2（0 = 不设门）
+      --no-build             不编译；**默认也不写回清单**，因为没验过
+      --write-command        强制写回命令（配 --no-build 时表示你自担风险）
+      Gradle 从 MODSMITH_GRADLE 或 PATH 找
 
   modsmith --version
   modsmith --help
@@ -118,7 +125,10 @@ async function cmdInspect(args) {
   writeManifest(paths.manifest, result.manifest);
 
   // 同目录里已有这个 mod 的清单、但文件名不一样 → 多半是要接已有部署，把 --pack 告诉人
-  const existingPack = findExistingPack(outDir, result.manifest.mod, result.packName);
+  // 只在没给 --pack 时提示：给了 --pack 说明是有意造第二份，再提示就会把自己刚写的指回去
+  const existingPack = typeof args.pack === 'string'
+    ? null
+    : findExistingPack(outDir, result.manifest.mod, result.packName);
   if (existingPack) {
     console.error(`  ! 这个目录里已有 ${existingPack}（同一个 mod）。`);
     console.error(`    要接它请重跑：modsmith inspect <jar> --out ${outDir} --pack ${existingPack}`);

@@ -13,4 +13,4 @@ import { writeManifest } from './manifest-io.mjs';
 
 export { inspectJar, readSidecar, writeSidecar, sidecarTemplateFrom, writeManifest };
 
-export const VERSION = '0.1.0';
+export const VERSION = '0.2.0';

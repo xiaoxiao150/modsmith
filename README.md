@@ -26,17 +26,18 @@ modsmith sidecar  <manifest.json>     给"服务端不开菜单"的站点生成�
 
 ```bash
 # 1) 看一眼这个 jar 里有什么（不需要服务器，不调 LLM）
+#    默认包名 = <mod id>-<MC 版本>-<mod 版本>；要接已有部署就显式 --pack
 modsmith inspect ./mods/SomeMod.jar --out ./out
 
 # 2) 装好这个 mod 的服务器起来之后，量数字 id
-modsmith calibrate ./out/somemod-1.0.0.json \
+modsmith calibrate ./out/somemod-1.21.1-1.0.0.json \
   --port 25565 --rcon-password yourpw
 
 # 3) 实测容器（名字像容器不等于能用——`*_crate` 名字最像，实测打不开）
-modsmith probe ./out/somemod-1.0.0.json --pack somemod-1.0.0
+modsmith probe ./out/somemod-1.21.1-1.0.0.json --pack somemod-1.21.1-1.0.0
 
 # 4) 冒烟
-modsmith verify ./out/somemod-1.0.0.json --pack somemod-1.0.0
+modsmith verify ./out/somemod-1.21.1-1.0.0.json --pack somemod-1.21.1-1.0.0
 ```
 
 ## 输出
@@ -98,6 +99,10 @@ modsmith verify ./out/somemod-1.0.0.json --pack somemod-1.0.0
 
 生成后会**真编译一次**（`--no-build` 可跳过），Gradle 从 `MODSMITH_GRADLE` 或 PATH 找。
 **生成的模组不会被自动安装**，编译产物留在 `sidecars/<mod>/build/libs/`。
+
+**命令只在编译成功后才写回清单。** 没编译成功的站点，清单保持原样——否则机器人会去调
+一个根本不存在的命令，表现为「发出去没人应答」，几秒后才超时，比报错难查得多。
+`--no-build` 默认不写回；确实要写就加 `--write-command`，它会在输出里明确警告「没验过」。
 
 ## 作物推断的边界
 

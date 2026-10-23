@@ -297,6 +297,43 @@ export default async function cmdCalibrate(args, io) {
     failed,
   };
 
+  // ---- 去重：一个 stateId 只能属于一个方块 ----
+  //
+  // `/setblock` 改不动属性时，几十个方块会被记成同一个残留 id。注入时"先到先得"会把
+  // 重复的静默丢掉 —— 但清单里留着它们就是假数据：下游任何按 stateId 反查的地方都会
+  // 拿到错的那个方块。这里先在文件层面清干净，谁先声明归谁（manifest 的方块顺序）。
+  {
+    const claimed = new Map();
+    const dupDropped = [];
+    for (const name of Object.keys(manifest.blocks ?? {})) {
+      const list = blocks[name];
+      if (!Array.isArray(list)) continue;
+      const kept = [];
+      for (const e of list) {
+        const id = e.stateId;
+        if (!(id > 0)) continue;
+        const owner = claimed.get(id);
+        if (owner === undefined) {
+          claimed.set(id, name);
+          kept.push(e);
+        } else if (owner !== name) {
+          dupDropped.push({ block: name, stateId: id, owner });
+        }
+      }
+      if (kept.length === 0) delete blocks[name];
+      else blocks[name] = kept;
+    }
+    if (dupDropped.length > 0) {
+      process.stderr.write(`  去重：${dupDropped.length} 条重复 stateId 被丢弃（归先声明的方块）\n`);
+      for (const d of dupDropped.slice(0, 6)) {
+        process.stderr.write(`    ${d.block} 的 ${d.stateId} 其实属于 ${d.owner}\n`);
+      }
+      for (const d of dupDropped) {
+        failed.push({ block: d.block, kind: 'duplicate-state', resp: `stateId ${d.stateId} 已归 ${d.owner}` });
+      }
+    }
+  }
+
   // ---- 自检：量出来的 id 到底对不对 ----
   //
   // 为什么必须验：`/setblock` 对一个"放不住"的方块（告示牌要墙/顶、作物要耕地）会
@@ -331,6 +368,16 @@ export default async function cmdCalibrate(args, io) {
       await sleep(260);
       const b = bot.blockAt(at);
       const seen = b?.name ?? '';
+      // 光比名字不够：prismarine 是按 stateId 活查注册表的，记录里只要有一条真 id
+      // 落在表上，名字就会对 —— 重复或错的那些条目照样混过去。所以还要核 stateId。
+      const recorded = new Set((blocks[name] ?? []).map((e) => e.stateId));
+      const seenId = typeof b?.stateId === 'number' ? b.stateId : 0;
+      if (seen === name && !recorded.has(seenId)) {
+        bad.push({ block: name, seen: name + '（stateId ' + seenId + ' 不在记录里）', kept: false });
+        delete blocks[name];
+        delete ids.blocks[name];
+        continue;
+      }
       if (seen !== name) {
         // 作物类自检失败多半是环境原因（要真种、要长在耕地上），不是 id 错。
         // 这类只标注不删 —— 删了她就完全不认识这个方块了，比"没验过"更糟。

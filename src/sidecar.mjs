@@ -65,6 +65,9 @@ function listJars(dir) {
   }
 }
 
+/** 生成的侧车模组自己的版本号（跟 modsmith 的版本无关，别混）。 */
+const GENERATED_MOD_VERSION = '0.1.0';
+
 /** 把任意 id 变成合法的 Java 类/包名片段。 */
 function ident(s) {
   const cleaned = String(s).replace(/[^A-Za-z0-9_]/g, '_');
@@ -518,6 +521,8 @@ export default async function cmdSidecar(args, io) {
   if (targets.length === 0) io.fatal(`没有叫「${only}」的 sidecar 站点`);
 
   const outRoot = String(args.out ?? './sidecars');
+  /** 待写回的命令（编译成功才落到清单里） */
+  const pending = [];
   const mcVersion = String(args['mc-version'] ?? '1.21.1');
   const ns = manifest.namespace ?? manifest.mod.replace(/-/g, '_');
 
@@ -572,7 +577,7 @@ export default async function cmdSidecar(args, io) {
       '@@RECIPETYPE@@': recipeType,
       '@@COOKTIME@@': String(cookTime),
       '@@CMD@@': cmd,
-      '@@VERSION@@': '0.1.0',
+      '@@VERSION@@': GENERATED_MOD_VERSION,
       '@@GROUP@@': `dev.modsmith`,
       '@@MCVERSION@@': mcVersion,
       '@@NAME@@': `${manifest.mod} ${label} sidecar`,
@@ -586,35 +591,33 @@ export default async function cmdSidecar(args, io) {
     writeFileSync(join(resDir, 'fabric.mod.json'), fill(FABRIC_MOD_JSON), 'utf8');
     writeFileSync(join(dir, 'README.md'), fill(README), 'utf8');
 
-    // 命令名要回写到 manifest，机器人才知道怎么调
-    st.command = `/${cmd} cook {recipe}`;
-    st.recipeType = recipeType;
+    // 命令名先记下来，**编译成功之后**才写回清单。
+    // 编译没过的模组装不上，那清单里就不能出现指向它的命令 —— 机器人会去调一个
+    // 不存在的命令，而且是静默失败（发出去没人应答，只在超时后才报错）。
+    pending.push({ station: st, command: `/${cmd} cook {recipe}`, recipeType, modId });
 
     console.error(`✓ ${st.id} → ${dir}`);
     console.error(`   命令 /${cmd} cook <recipe>，配方类型 ${recipeType}`);
   }
 
-  // 命令名变化要落盘，否则 learn 学的对不上
-  const { writeManifest } = await import('./manifest-io.mjs');
-  writeManifest(manifestPath, manifest);
-  console.error(`  已把 command 写回 ${manifestPath}`);
-
   console.error('\n⚠️  生成的模组**没有**被安装到任何服务器。');
   console.error('   先用 gradle build 编译，再在临时服上验一遍，确认后才考虑生产服。');
   // ---- 真编译一次 ----
+  let buildAttempted = false;
   if (args['no-build'] !== true) {
     const gradle = resolveGradle();
     if (!gradle) {
       console.error('! 找不到 gradle，跳过编译。用 MODSMITH_GRADLE 指到 gradle 可执行文件。');
     } else {
-      for (const st of targets) {
-        const modId = ident(ns + '_' + st.id).toLowerCase();
-        const dir = join(outRoot, modId);
-        console.error('编译 ' + modId + '（' + gradle + '）...');
+      buildAttempted = true;
+      for (const item of pending) {
+        const dir = join(outRoot, item.modId);
+        console.error('编译 ' + item.modId + '（' + gradle + '）...');
         const t0 = Date.now();
         const res = await runGradle(gradle, dir);
         const secs = Math.round((Date.now() - t0) / 1000);
         if (res.ok) {
+          item.built = true;
           const jars = listJars(join(dir, 'build', 'libs'));
           console.error('  OK ' + secs + 's' + (jars.length > 0 ? ' -> ' + jars.join(', ') : ''));
         } else {
@@ -627,6 +630,37 @@ export default async function cmdSidecar(args, io) {
   } else {
     console.error('（--no-build：跳过编译）');
   }
+
+  // ---- 命令写回：只有编译通过才算数 ----
+  //
+  // 清单里的 command 会被机器人直接拿去 `/xxx cook ...`。指向一个没编译成功、更没装上的
+  // 命令，表现是"发出去了但没人应答"，几秒后才超时 —— 比直接报错难查得多。
+  const writable = pending.filter((x) => x.built);
+  const explicitWrite = args['write-command'] === true;
+  if (writable.length === 0) {
+    console.error('\n命令**没有**写回清单：没有编译成功的站点。');
+    console.error('  清单保持原样，机器人不会去调不存在的命令。');
+    if (explicitWrite && pending.length > 0) {
+      for (const x of pending) { x.station.command = x.command; x.station.recipeType = x.recipeType; }
+      const { writeManifest } = await import('./manifest-io.mjs');
+      writeManifest(manifestPath, manifest);
+      console.error('  ! --write-command：照生成结果写了，**没有经过编译验证**。');
+    }
+  } else if (writable.length < pending.length && !explicitWrite) {
+    const skipped = pending.filter((x) => !x.built).map((x) => x.station.id);
+    console.error(`\n只有 ${writable.length}/${pending.length} 个站点编译成功，一条都不写回（避免清单半新半旧）。`);
+    console.error(`  编译失败的：${skipped.join(', ')}`);
+  } else {
+    for (const x of writable) {
+      x.station.command = x.command;
+      x.station.recipeType = x.recipeType;
+    }
+    const { writeManifest } = await import('./manifest-io.mjs');
+    writeManifest(manifestPath, manifest);
+    console.error(`\n已把 ${writable.length} 条命令写回 ${manifestPath}`);
+    for (const x of writable) console.error(`  ${x.station.id} → ${x.command}`);
+  }
+  void buildAttempted;
 
   console.log(outRoot);
 }

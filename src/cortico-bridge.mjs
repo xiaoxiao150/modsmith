@@ -159,7 +159,7 @@ export function installModRegistry(bot, pack) {
     }
     observed.push({ entry, min: entry.minStateId, span });
     blocks++;
-    states += stateIds.length;
+    states += kept.length;
   }
 
   // 实测没覆盖到的状态按区间补齐，别留成"未知方块=空气"。
