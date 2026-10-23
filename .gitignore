@@ -1,0 +1,7 @@
+node_modules/
+.gradle/
+sidecars/
+mods/
+*.log
+_*
+build/

@@ -1,0 +1,389 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://cortico.dev/schemas/mod-manifest-v2.json",
+  "title": "ModManifest",
+  "description": "一个 Fabric 模组的语义清单：模组自己不会告诉客户端的东西（方块/物品/配方/站点用法）全在这里。由 modsmith inspect 生成，modsmith learn 补语义，modsmith sidecar 补侧车命令。",
+  "type": "object",
+  "required": [
+    "mod",
+    "version",
+    "blocks",
+    "items",
+    "crops",
+    "recipes",
+    "names"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "mod": {
+      "type": "string",
+      "description": "包名，用作 mods/ 下的文件名。连字符写法，如 farmers-delight。"
+    },
+    "version": {
+      "type": "string",
+      "description": "模组版本，如 1.21.1-3.3.6。"
+    },
+    "namespace": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+$",
+      "description": "1.21 的命名空间，如 farmersdelight。v2 起必填；缺了会从方块名前缀推。"
+    },
+    "source": {
+      "type": "string",
+      "description": "生成它的 jar 文件名，只作溯源用。"
+    },
+    "blocks": {
+      "type": "object",
+      "description": "方块全名 → 规格。key 必须带命名空间。",
+      "additionalProperties": {
+        "$ref": "#/definitions/blockSpec"
+      }
+    },
+    "items": {
+      "type": "object",
+      "description": "物品全名 → 规格。key 必须带命名空间。",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "stack": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 64
+          }
+        }
+      }
+    },
+    "foods": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "可食用物品的全名。注入 registry.foodsByName，让 eat 技能认它。"
+    },
+    "crops": {
+      "type": "object",
+      "description": "作物：key 是方块名（可裸名），value 说明种子/年龄上限/能长在哪。",
+      "additionalProperties": {
+        "$ref": "#/definitions/cropSpec"
+      }
+    },
+    "recipes": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/recipe"
+      }
+    },
+    "names": {
+      "type": "object",
+      "description": "中文/英文显示名。key 形如 block.stove 或 item.bacon。",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "zh": {
+            "type": "string"
+          },
+          "en": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "containers": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "能当箱子用的方块全名（右键能开出原版容器菜单）。"
+    },
+    "stations": {
+      "type": "array",
+      "description": "站点：这个 mod 的方块各自怎么用。每种 kind 对应代码里一条已有的交互流程。",
+      "items": {
+        "$ref": "#/definitions/station"
+      }
+    },
+    "prompt": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "玩法说明，渲染进环境提示词。缺了就只有一句「装了 X」。",
+      "properties": {
+        "zh": {
+          "type": "string",
+          "maxLength": 1200
+        },
+        "en": {
+          "type": "string",
+          "maxLength": 1600
+        }
+      }
+    },
+    "candidates": {
+      "type": "object",
+      "description": "配方 tag → 具体物品名候选。生成时展开好，运行时不再猜。",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
+    },
+    "unsupported": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 200
+      },
+      "description": "这个 mod 里已知做不到的事。会写进提示词，免得她白试。"
+    },
+    "probe": {
+      "type": "object",
+      "description": "最近一次实测的审计痕迹（由 probe / learn 写入）。",
+      "additionalProperties": true
+    }
+  },
+  "definitions": {
+    "blockSpec": {
+      "type": "object",
+      "required": [
+        "states",
+        "solid"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "states": {
+          "type": "array",
+          "description": "方块状态组合，来自 blockstates/。属性值一律字符串。",
+          "items": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            }
+          }
+        },
+        "box": {
+          "description": "碰撞盒 [x0,y0,z0,x1,y1,z1]（0..1）；null = 没有碰撞盒。",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "array",
+              "minItems": 6,
+              "maxItems": 6,
+              "items": {
+                "type": "number"
+              }
+            }
+          ]
+        },
+        "solid": {
+          "type": "boolean"
+        },
+        "drops": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "model": {
+          "type": "string"
+        }
+      }
+    },
+    "cropSpec": {
+      "type": "object",
+      "required": [
+        "seed",
+        "max_age",
+        "age_prop",
+        "soils"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "seed": {
+          "type": "string",
+          "description": "种下去用的物品（可裸名，读取时补本 mod 命名空间）。"
+        },
+        "max_age": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "成熟时 age 的值。"
+        },
+        "age_prop": {
+          "type": "string",
+          "description": "年龄属性名，通常是 age。"
+        },
+        "soils": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "能种在上面的方块全名。"
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "同作物的其它形态（只参与年龄/收割，不覆盖种子映射）。"
+        },
+        "harvest_item": {
+          "type": "string",
+          "description": "收下来得到的物品；不写按作物名推。"
+        },
+        "kind": {
+          "enum": [
+            "age-property",
+            "stage-blocks"
+          ],
+          "description": "age-property=一个方块靠 age 属性长大；stage-blocks=每个阶段一个独立方块。"
+        },
+        "stages": {
+          "type": "object",
+          "description": "stage-blocks：级号 → 方块短名。",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "recipe": {
+      "type": "object",
+      "required": [
+        "file",
+        "type"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "1.21 配方 id，如 farmersdelight:cooking/beef_stew。"
+        },
+        "file": {
+          "type": "string"
+        },
+        "type": {
+          "type": "string"
+        },
+        "ingredients": {
+          "type": "array"
+        },
+        "result": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "integer"
+                }
+              }
+            },
+            {
+              "type": "array"
+            }
+          ]
+        },
+        "cooking_time": {
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "container": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      }
+    },
+    "station": {
+      "type": "object",
+      "required": [
+        "id",
+        "kind",
+        "block"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+$"
+        },
+        "kind": {
+          "enum": [
+            "two-step-use",
+            "place-and-wait",
+            "sidecar-recipe"
+          ],
+          "description": "two-step-use=先放料再持工具右键；place-and-wait=放上去等熟；sidecar-recipe=服务端不开菜单，交给侧车模组。"
+        },
+        "block": {
+          "type": "string",
+          "description": "方块全名。"
+        },
+        "toolSuffix": {
+          "type": "string",
+          "description": "two-step-use：工具按什么后缀认。"
+        },
+        "waitMs": {
+          "type": "integer",
+          "minimum": 1000,
+          "description": "place-and-wait：熟成毫秒。"
+        },
+        "slots": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 16,
+          "description": "place-and-wait：一次能放几份。"
+        },
+        "command": {
+          "type": "string",
+          "description": "sidecar-recipe：服务端命令模板，{recipe} 会被替换。"
+        },
+        "recipeType": {
+          "type": "string",
+          "description": "sidecar-recipe：配方 type 值。"
+        },
+        "heatTag": {
+          "type": "string",
+          "description": "sidecar-recipe：这个站点要下方有热源。值是方块 tag 全名（如 farmersdelight:heat_sources）；侧车模板会据此生成检查。"
+        },
+        "opensWindow": {
+          "type": "boolean",
+          "description": "probe 实测：右键开不开窗。"
+        },
+        "windowType": {
+          "type": "string",
+          "description": "probe 实测：开出的是什么菜单类型。"
+        },
+        "verified": {
+          "type": "boolean",
+          "description": "这些字段是否经过实测验证（learn --probe / probe --write-manifest 会置 true）。"
+        },
+        "needsReview": {
+          "type": "boolean",
+          "description": "probe 发现声明与实测矛盾，需要人工或 learn 复核。"
+        },
+        "reviewReason": {
+          "type": "string",
+          "description": "矛盾的具体原因。"
+        }
+      }
+    }
+  }
+}

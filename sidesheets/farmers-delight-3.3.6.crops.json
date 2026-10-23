@@ -1,0 +1,42 @@
+{
+  "_comment": "农夫乐事的作物覆盖表。自动推断在命名不规则时会退化（tomatoes → tomatoes 而不是 tomato_seeds），这份人手校准过的表优先于推断。",
+  "_drop": ["budding_tomatoes", "tomatoes_on_rope", "rice_panicles"],
+  "cabbages": {
+    "seed": "cabbage_seeds",
+    "max_age": 7,
+    "age_prop": "age",
+    "soils": ["minecraft:farmland", "farmersdelight:rich_soil_farmland"]
+  },
+  "tomatoes": {
+    "seed": "tomato_seeds",
+    "max_age": 3,
+    "age_prop": "age",
+    "soils": ["minecraft:farmland", "farmersdelight:rich_soil_farmland"],
+    "aliases": ["budding_tomatoes", "tomatoes_on_rope"]
+  },
+  "onions": {
+    "seed": "onion",
+    "max_age": 7,
+    "age_prop": "age",
+    "soils": ["minecraft:farmland", "farmersdelight:rich_soil_farmland"]
+  },
+  "rice": {
+    "seed": "rice",
+    "max_age": 3,
+    "age_prop": "age",
+    "soils": ["minecraft:farmland", "farmersdelight:rich_soil_farmland"],
+    "aliases": ["rice_panicles"]
+  },
+  "brown_mushroom_colony": {
+    "seed": "minecraft:brown_mushroom",
+    "max_age": 3,
+    "age_prop": "age",
+    "soils": ["farmersdelight:rich_soil"]
+  },
+  "red_mushroom_colony": {
+    "seed": "minecraft:red_mushroom",
+    "max_age": 3,
+    "age_prop": "age",
+    "soils": ["farmersdelight:rich_soil"]
+  }
+}

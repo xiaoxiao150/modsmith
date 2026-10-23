@@ -1,0 +1,31 @@
+{
+  "name": "modsmith",
+  "version": "0.1.0",
+  "description": "Turn a Fabric mod jar into a semantic manifest any mineflayer bot can use",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "modsmith": "./bin/modsmith.mjs"
+  },
+  "exports": {
+    ".": "./src/index.mjs"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "mineflayer": "^4.37.1",
+    "vec3": "^0.2.0"
+  },
+  "peerDependencies": {
+    "mineflayer-pathfinder": "^2.4.5"
+  },
+  "peerDependenciesMeta": {
+    "mineflayer-pathfinder": {
+      "optional": true
+    }
+  }
+}

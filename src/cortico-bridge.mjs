@@ -1,0 +1,251 @@
+/**
+ * modsmith 自带的最小注册表注入。
+ *
+ * 为什么要重写而不 import Cortico 的：modsmith 是能独立拿出去用的工具，不该反向依赖
+ * 某个具体项目。这里只做 probe 需要的两件事：让 `bot.blockAt` 认得出模组方块、让它
+ * 知道模组物品的数字 id。
+ *
+ * 注入时机同样必须在 `inject_allowed` 之前——prismarine-block 的工厂只在那时拷一次
+ * boundingBox/shapes。
+ */
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+
+let modsDir = null;
+
+/** 指定 manifest/ids 所在目录（默认 ./mods）。 */
+export function setModsDir(dir) {
+  modsDir = dir;
+}
+
+function dirOf() {
+  return modsDir ?? join(process.cwd(), 'mods');
+}
+
+export function loadModPack(name) {
+  const dir = dirOf();
+  if (!name) return null;
+  try {
+    const manifest = JSON.parse(readFileSync(join(dir, `${name}.json`), 'utf8'));
+    const ids = JSON.parse(readFileSync(join(dir, `${name}-ids.json`), 'utf8'));
+    return { manifest, ids };
+  } catch {
+    // 没有 ids 时才来看一眼有没有 manifest：给个明白的说法
+    try {
+      JSON.parse(readFileSync(join(dir, `${name}.json`), 'utf8'));
+      throw new Error(`${name}-ids.json 不存在：先跑 modsmith calibrate`);
+    } catch (err) {
+      if (String(err.message).includes('先跑')) throw err;
+      return null;
+    }
+  }
+}
+
+/** 已加载的包名（供 probe 逐个注入）。 */
+export function listPacks() {
+  try {
+    return readdirSync(dirOf())
+      .filter((f) => f.endsWith('.json') && !f.endsWith('-ids.json') && f !== 'manifest.schema.json')
+      .map((f) => f.slice(0, -5));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 把 manifest + 实测 id 合并进 bot.registry。
+ * 返回注入的方块/状态/物品数，供日志。
+ */
+export function installModRegistry(bot, pack) {
+  const reg = bot.registry;
+  if (!reg?.blocksByStateId || !reg.itemsByName) throw new Error('registry 形状不对，注入中止');
+  const { manifest, ids } = pack;
+
+  let nextBlockId = Math.max(0, ...Object.keys(reg.blocks ?? {}).map(Number)) + 1;
+  const shapes = reg.blockCollisionShapes;
+  let nextShapeId = shapes ? Math.max(0, ...Object.keys(shapes.shapes ?? {}).map(Number)) + 1 : 0;
+
+  let blocks = 0;
+  let states = 0;
+  const observed = [];
+
+  for (const [name, spec] of Object.entries(manifest.blocks ?? {})) {
+    const measured = ids.blocks?.[name] ?? [];
+    if (measured.length === 0) continue;
+    const stateIds = measured.map((m) => m.stateId).filter((v) => v > 0);
+    if (stateIds.length === 0) continue;
+
+    const solid = spec.solid !== false;
+    const box = solid ? (spec.box ?? [0, 0, 0, 1, 1, 1]) : null;
+    const seq = [...measured].sort((a, b) => a.stateId - b.stateId);
+    const propNames = [...new Set(seq.flatMap((m) => Object.keys(m.props ?? {})))];
+    const transitions = propNames.map((p) => {
+      let n = 0;
+      for (let i = 1; i < seq.length; i++) if (seq[i].props?.[p] !== seq[i - 1].props?.[p]) n++;
+      const values = new Set(seq.map((m) => m.props?.[p]));
+      return { name: p, n, values };
+    }).sort((a, b) => a.n - b.n);
+    const stateDesc = transitions.map((t) => ({
+      name: t.name,
+      type: t.values.size === 2 && (t.values.has('true') || t.values.has('false')) ? 'bool' : 'integer',
+      num_values: t.values.size,
+    }));
+    const span = Math.max(...stateIds) - Math.min(...stateIds) + 1;
+    const decoded = stateDesc.reduce((n, d) => n * d.num_values, 1);
+    if (span > decoded) {
+      const known = new Set(stateDesc.map((d) => d.name));
+      for (const p of [...new Set((spec.states ?? []).flatMap((s) => Object.keys(s)))]) {
+        if (known.has(p)) continue;
+        const values = new Set((spec.states ?? []).map((s) => s[p]).filter((v) => v !== undefined));
+        if (values.size > 1) {
+          stateDesc.push({ name: p, type: 'bool', num_values: values.size });
+          known.add(p);
+        }
+      }
+    }
+
+    const entry = {
+      id: nextBlockId++,
+      name,
+      displayName: manifest.names?.[`block.${name.split(':')[1]}`]?.zh ?? name.split(':')[1],
+      hardness: solid ? 1.5 : 0,
+      boundingBox: solid ? 'block' : 'empty',
+      diggable: true,
+      transparent: !solid,
+      material: 'default',
+      harvestTools: {},
+      drops: spec.drops ?? [],
+      minStateId: Math.min(...stateIds),
+      maxStateId: Math.max(...stateIds),
+      defaultState: Math.min(...stateIds),
+      stackSize: 64,
+      states: stateDesc,
+    };
+
+    reg.blocks[entry.id] = entry;
+    reg.blocksByName[name] = entry;
+    reg.blocksArray.push(entry);
+    for (const id of stateIds) reg.blocksByStateId[id] = entry;
+
+    if (shapes) {
+      const shape = box ? [[box[0], box[1], box[2], box[3], box[4], box[5]]] : [];
+      const shapeId = nextShapeId++;
+      shapes.shapes[shapeId] = shape;
+      shapes.blocks[name] = [shapeId];
+    }
+    observed.push({ entry, min: Math.min(...stateIds), span });
+    blocks++;
+    states += stateIds.length;
+  }
+
+  // 实测没覆盖到的状态按区间补齐，别留成"未知方块=空气"。
+  //
+  // 但**不能抢别的方块实测过的 stateId**：模组方块的 id 是连着一片的，某个方块没量全时
+  // 它的区间尾巴会伸进隔壁方块的地盘，硬填会把隔壁标成它（实测：三个挂墙告示牌被填成了
+  // `gleaming_salad_block`）。"错名比未知更糟"，所以只填没被任何人量到的号。
+  const claimed = new Set();
+  for (const list of Object.values(ids.blocks ?? {})) {
+    for (const m of list) if (m.stateId > 0) claimed.add(m.stateId);
+  }
+  for (const { entry, min, span } of observed) {
+    for (let id = min; id < min + span; id++) {
+      if (reg.blocksByStateId[id]) continue;
+      if (claimed.has(id)) continue;   // 这一格是别人量到的，别抢
+      reg.blocksByStateId[id] = entry;
+    }
+  }
+
+  let items = 0;
+  let nextItemId = Math.max(0, ...Object.keys(reg.items ?? {}).map(Number)) + 1;
+  for (const name of Object.keys(manifest.items ?? {})) {
+    const id = ids.items?.[name];
+    if (typeof id !== 'number' || id <= 0) continue;
+    const entry = {
+      id,
+      name,
+      displayName: manifest.names?.[`item.${name.split(':')[1]}`]?.zh
+        ?? manifest.names?.[`block.${name.split(':')[1]}`]?.zh
+        ?? name.split(':')[1],
+      stackSize: manifest.items[name]?.stack ?? 64,
+    };
+    reg.items[id] = entry;
+    reg.itemsByName[name] = entry;
+    reg.itemsArray.push(entry);
+    items++;
+  }
+  void nextItemId;
+
+  // 模组食物：不注入的话 skillEat 会一律拒
+  if (reg.foodsByName) {
+    for (const name of manifest.foods ?? []) {
+      if (reg.foodsByName[name]) continue;
+      const id = ids.items?.[name];
+      if (typeof id !== 'number') continue;
+      reg.foodsByName[name] = { id, name, foodPoints: 4, saturation: 0.6, eatingTime: 32 };
+    }
+  }
+
+  return { blocks, states, items };
+}
+
+/**
+ * 包流容错：模组改了静态注册表会让 `declare_recipes` 整包错位，不吞掉客户端连不上。
+ *
+ * 两个必须照抄的细节（踩过）：
+ *   a) 要补在 **deserializer** 上，不是 proto 上
+ *   b) 每次状态切换 mineflayer 会换掉 deserializer，所以得挂 `client.on('state')` 反复补
+ *   c) metadata.size 必须等于本帧长度，否则流会错位
+ */
+export function installMineflayerFixes(bot) {
+  const client = bot._client;
+  if (!client) return;
+  const drop = new Set(['declare_recipes']);
+  const seen = new Set();
+
+  const patch = () => {
+    const d = client.deserializer;
+    if (!d || d.__modsmithTolerant) return;
+    const orig = d.parsePacketBuffer.bind(d);
+    d.parsePacketBuffer = (buf) => {
+      try {
+        return orig(buf);
+      } catch (err) {
+        const name = packetNameOf(bot, buf);
+        if (!drop.has(name)) throw err;
+        if (!seen.has(name)) {
+          seen.add(name);
+          console.warn(`丢弃无法解析的 ${name}（${buf.length} 字节）：模组改写了静态注册表`);
+        }
+        return {
+          data: { name: '_modsmith_dropped', params: {} },
+          metadata: { state: client.state, name: '_modsmith_dropped', size: buf.length },
+        };
+      }
+    };
+    d.__modsmithTolerant = true;
+  };
+
+  patch();
+  client.on('state', patch);
+}
+
+/** 包号 → 名字。协议表用十六进制字符串（"0x77"）做键。 */
+function packetNameOf(bot, buf) {
+  try {
+    // varint 解包号
+    let i = 0;
+    let id = 0;
+    let shift = 0;
+    while (i < buf.length) {
+      const byte = buf[i++];
+      id |= (byte & 0x7f) << shift;
+      if ((byte & 0x80) === 0) break;
+      shift += 7;
+    }
+    const packet = bot.registry?.protocol?.play?.toClient?.types?.packet;
+    const mappings = packet?.[1]?.[0]?.type?.[1]?.mappings ?? {};
+    return mappings[`0x${id.toString(16)}`] ?? mappings[String(id)] ?? `packet#${id}`;
+  } catch {
+    return 'packet#?';
+  }
+}

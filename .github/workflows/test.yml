@@ -1,0 +1,19 @@
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      # node_modules 里的 mineflayer/vec3 是本地开发的 junction，CI 上要真装
+      - run: npm install --no-audit --no-fund
+      - run: npm test
+        env:
+          MODSMITH_TEST_JAR: test/fixtures/tiny-mod.jar
