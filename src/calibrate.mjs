@@ -128,6 +128,14 @@ export default async function cmdCalibrate(args, io) {
   const blocks = {};
   const items = {};
   const failed = [];
+
+  // 作物类方块必须长在耕地上：测量阶段也得垫，不然 setblock 放下去就掉，
+  // 读回来的是上一格的残留 id（实测番茄就是这么被记成绳子的）。
+  const cropNames = new Set([
+    ...Object.keys(manifest.crops ?? {}).map((c) => (c.includes(':') ? c : `${manifest.namespace ?? ''}:${c}`)),
+    ...Object.values(manifest.crops ?? {}).flatMap((c) => (c.aliases ?? [])
+      .map((a) => (a.includes(':') ? a : `${manifest.namespace ?? ''}:${a}`))),
+  ]);
   const propsKey = (props) => Object.entries(props ?? {}).sort(([a], [b]) => a.localeCompare(b))
     .map(([k, v]) => `${k}=${v}`).join(',');
 
@@ -178,6 +186,11 @@ export default async function cmdCalibrate(args, io) {
     for (const st of states) {
       const arg = Object.keys(st).length > 0 ? `[${propsKey(st)}]` : '';
       let got = null;
+      // 只有作物需要换支撑（要耕地）。非作物别动这一格 —— 每状态都重设一次会让
+      // 方块触发一次更新，实测把整轮测量搞成了同一个残留 id。
+      if (cropNames.has(name)) {
+        await cmd(`setblock ${bx} ${by - 1} ${bz} minecraft:farmland`);
+      }
       for (let attempt = 0; attempt < 3 && !got; attempt++) {
         await cmd(`setblock ${bx} ${by} ${bz} minecraft:air`);
         await waitFor(read, (b) => b.stateId === 0, 900);
@@ -310,12 +323,6 @@ export default async function cmdCalibrate(args, io) {
       process.stderr.write('  自检跳过（注册表注入失败）：' + err.message + '\n');
     }
     const bad = [];
-    // 作物类方块必须长在耕地上，否则 setblock 会立刻掉掉，自检必然失败
-    const cropNames = new Set([
-      ...Object.keys(manifest.crops ?? {}).map((c) => (c.includes(':') ? c : `${manifest.namespace ?? ''}:${c}`)),
-      ...Object.values(manifest.crops ?? {}).flatMap((c) => (c.aliases ?? [])
-        .map((a) => (a.includes(':') ? a : `${manifest.namespace ?? ''}:${a}`))),
-    ]);
     for (const name of (injected ? Object.keys(blocks) : [])) {
       // 非作物也要有支撑面，否则方块会掉下去 —— 用石头；作物用耕地
       const soil = cropNames.has(name) ? 'minecraft:farmland' : 'minecraft:stone';
