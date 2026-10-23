@@ -525,9 +525,10 @@ async function calibrateByPlacement({ bot, cmd, ids, manifest, username, bx, by,
     // **不能比对方块名**：这个 bot 还没注入注册表，模组方块的名字一律是 `unknown`，
     // 名字相等永远不成立（踩过：放置补测跑完了，一条都没记下）。
     // 改成看两件更强的证据：手快里那一件没了（确实放下去了）+ 那一格有了 stateId。
-    const stillHeld = bot.inventory?.items?.().some((it) => it.name === name
-      || it.name === name.split(':')[1]);
-    if (placed && placed.stateId > 0 && !stillHeld) {
+    // 别用"手里那件还在不在"当判据：放置后客户端背包是延迟同步的，经常还看得见，
+    // 结果一条都记不下（踩过两次）。只看那一格：清成 air 之后又有了 stateId，
+    // 就是放下去了。
+    if (placed && placed.stateId > 0) {
       const list = ids.blocks[name] ?? [];
       // 真实放置量到的是默认态；把 props 空着，让 registry 用区间兜底
       if (!list.some((s) => s.stateId === placed.stateId)) {
@@ -535,7 +536,7 @@ async function calibrateByPlacement({ bot, cmd, ids, manifest, username, bx, by,
         ids.blocks[name] = list;
       }
     } else if (done < 3) {
-      process.stderr.write(`    放置没成：${name}（stateId ${placed?.stateId ?? 0}，手里还有 ${stillHeld ? '是' : '没有'}）
+      process.stderr.write(`    放置没成：${name}（那一格 stateId ${placed?.stateId ?? 0}）
 `);
     }
     await cmd(`setblock ${spot.x} ${spot.y} ${spot.z} minecraft:air`);
