@@ -603,13 +603,11 @@ export default async function cmdSidecar(args, io) {
   console.error('\n⚠️  生成的模组**没有**被安装到任何服务器。');
   console.error('   先用 gradle build 编译，再在临时服上验一遍，确认后才考虑生产服。');
   // ---- 真编译一次 ----
-  let buildAttempted = false;
   if (args['no-build'] !== true) {
     const gradle = resolveGradle();
     if (!gradle) {
       console.error('! 找不到 gradle，跳过编译。用 MODSMITH_GRADLE 指到 gradle 可执行文件。');
     } else {
-      buildAttempted = true;
       for (const item of pending) {
         const dir = join(outRoot, item.modId);
         console.error('编译 ' + item.modId + '（' + gradle + '）...');
@@ -660,7 +658,6 @@ export default async function cmdSidecar(args, io) {
     console.error(`\n已把 ${writable.length} 条命令写回 ${manifestPath}`);
     for (const x of writable) console.error(`  ${x.station.id} → ${x.command}`);
   }
-  void buildAttempted;
 
   console.log(outRoot);
 }

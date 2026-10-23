@@ -297,6 +297,10 @@ export default async function cmdCalibrate(args, io) {
     failed,
   };
 
+  if (args.place) {
+    await calibrateByPlacement({ bot, cmd, ids, manifest, username, bx, by, bz, io });
+  }
+
   // ---- 去重：一个 stateId 只能属于一个方块 ----
   //
   // `/setblock` 改不动属性时，几十个方块会被记成同一个残留 id。注入时"先到先得"会把
@@ -305,6 +309,7 @@ export default async function cmdCalibrate(args, io) {
   {
     const claimed = new Map();
     const dupDropped = [];
+    const sameBlockDropped = [];
     for (const name of Object.keys(manifest.blocks ?? {})) {
       const list = blocks[name];
       if (!Array.isArray(list)) continue;
@@ -318,6 +323,9 @@ export default async function cmdCalibrate(args, io) {
           kept.push(e);
         } else if (owner !== name) {
           dupDropped.push({ block: name, stateId: id, owner });
+        } else {
+          // 同一个方块内部重复：也要记账。静默丢掉的话，报告里的"状态数"是假的
+          sameBlockDropped.push({ block: name, stateId: id });
         }
       }
       if (kept.length === 0) delete blocks[name];
@@ -330,6 +338,17 @@ export default async function cmdCalibrate(args, io) {
       }
       for (const d of dupDropped) {
         failed.push({ block: d.block, kind: 'duplicate-state', resp: `stateId ${d.stateId} 已归 ${d.owner}` });
+      }
+    }
+    if (sameBlockDropped.length > 0) {
+      process.stderr.write(`  去重：块内重复 ${sameBlockDropped.length} 条（同一方块同一 stateId）
+`);
+      for (const d of sameBlockDropped.slice(0, 4)) {
+        process.stderr.write(`    ${d.block} 有 ${d.stateId} 列了不止一次
+`);
+      }
+      for (const d of sameBlockDropped) {
+        failed.push({ block: d.block, kind: 'duplicate-in-block', resp: `stateId ${d.stateId} 在同一方块内重复` });
       }
     }
   }
@@ -373,7 +392,7 @@ export default async function cmdCalibrate(args, io) {
       const recorded = new Set((blocks[name] ?? []).map((e) => e.stateId));
       const seenId = typeof b?.stateId === 'number' ? b.stateId : 0;
       if (seen === name && !recorded.has(seenId)) {
-        bad.push({ block: name, seen: name + '（stateId ' + seenId + ' 不在记录里）', kept: false });
+        bad.push({ block: name, seen: 'stateId ' + seenId + ' 不在该方块的实测记录里', kept: false });
         delete blocks[name];
         delete ids.blocks[name];
         continue;
@@ -413,10 +432,6 @@ export default async function cmdCalibrate(args, io) {
   }
 
   // ---- --place：真实放置补测 setblock 改不动属性的方块 ----
-  if (args.place) {
-    await calibrateByPlacement({ bot, cmd, ids, manifest, username, bx, by, bz, io });
-  }
-
   writeIds(outPath, ids);
 
   const okBlocks = Object.keys(blocks).length;
@@ -449,8 +464,17 @@ async function calibrateByPlacement({ bot, cmd, ids, manifest, username, bx, by,
   await cmd(`fill ${bx - 4} ${by} ${bz - 4} ${bx + 4} ${by + 3} ${bz + 4} minecraft:air`);
   await sleep(500);
 
+  // 判据：**量出来的不同 stateId 比声明的状态数少** —— 那就是 `/setblock` 设不动属性。
+  //
+  // 不能写成"多个状态量成同一个号"：去重会先把块内重复收掉，那个条件永远不成立（踩过）。
+  // 这个判据在去重前后都成立，而且能抓住"12 个状态只量到 8 个"这种半塌的情况。
   const suspects = Object.entries(ids.blocks ?? {})
-    .filter(([, list]) => list.length > 1 && new Set(list.map((s) => s.stateId)).size === 1);
+    .filter(([name, list]) => {
+      const declared = (manifest.blocks?.[name]?.states ?? []).length;
+      if (declared <= 1) return false;
+      const distinct = new Set(list.map((s) => s.stateId)).size;
+      return distinct < declared;
+    });
   if (suspects.length === 0) {
     console.error('  没有需要真实放置补测的方块');
     return;
@@ -483,13 +507,21 @@ async function calibrateByPlacement({ bot, cmd, ids, manifest, username, bx, by,
     }
     await sleep(400);
     const placed = bot.blockAt(spot);
-    if (placed && placed.stateId && placed.name === name) {
+    // **不能比对方块名**：这个 bot 还没注入注册表，模组方块的名字一律是 `unknown`，
+    // 名字相等永远不成立（踩过：放置补测跑完了，一条都没记下）。
+    // 改成看两件更强的证据：手快里那一件没了（确实放下去了）+ 那一格有了 stateId。
+    const stillHeld = bot.inventory?.items?.().some((it) => it.name === name
+      || it.name === name.split(':')[1]);
+    if (placed && placed.stateId > 0 && !stillHeld) {
       const list = ids.blocks[name] ?? [];
       // 真实放置量到的是默认态；把 props 空着，让 registry 用区间兜底
       if (!list.some((s) => s.stateId === placed.stateId)) {
         list.unshift({ props: {}, stateId: placed.stateId, note: '真实放置校准' });
         ids.blocks[name] = list;
       }
+    } else if (done < 3) {
+      process.stderr.write(`    放置没成：${name}（stateId ${placed?.stateId ?? 0}，手里还有 ${stillHeld ? '是' : '没有'}）
+`);
     }
     await cmd(`setblock ${spot.x} ${spot.y} ${spot.z} minecraft:air`);
     done++;
