@@ -66,11 +66,20 @@ export function applyProbe(manifest, probeOut, opts = {}) {
   const ok = Array.isArray(probeOut?.containers?.ok) ? probeOut.containers.ok : null;
   if (writeContainers && ok) {
     const before = Array.isArray(manifest.containers) ? manifest.containers : [];
-    const removed = before.filter((n) => !ok.includes(n));
-    const added = ok.filter((n) => !before.includes(n));
-    manifest.containers = [...ok];
-    if (removed.length > 0) notes.push(`容器去掉 ${removed.length} 个（名字像但打不开）：${removed.slice(0, 4).join(', ')}`);
+    // "没测成"不等于"不能用"：这些留在原表里，别因为一次放置失败就删掉
+    const untested = new Set(
+      (Array.isArray(probeOut?.containers?.untested) ? probeOut.containers.untested : [])
+        .map((c) => c?.name).filter(Boolean),
+    );
+    const kept = before.filter((n) => ok.includes(n) || untested.has(n));
+    // 实测能开、但静态候选没猜到的，补进来
+    for (const n of ok) if (!kept.includes(n)) kept.push(n);
+    const removed = before.filter((n) => !kept.includes(n));
+    const added = kept.filter((n) => !before.includes(n));
+    manifest.containers = kept;
+    if (removed.length > 0) notes.push(`容器去掉 ${removed.length} 个（测过确实打不开）：${removed.slice(0, 4).join(', ')}`);
     if (added.length > 0) notes.push(`容器补上 ${added.length} 个（静态没猜到但能开）：${added.slice(0, 4).join(', ')}`);
+    if (untested.size > 0) notes.push(`${untested.size} 个容器没测成，保留原判`);
   }
 
   // ---- 站点：只标注，不改 kind ----

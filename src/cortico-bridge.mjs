@@ -68,6 +68,17 @@ export function installModRegistry(bot, pack) {
   let blocks = 0;
   let states = 0;
   const observed = [];
+  /**
+   * 一个 stateId 只能属于一个方块。
+   *
+   * 老校准会遇到这个：`/setblock` 改不动某些属性时，客户端读回的是上一格的残留值，
+   * 于是几十个方块的"第二、三个状态"全都指向同一个 stateId（实测农夫乐事有 100 多个
+   * 方块挤在 26979 上）。如果照单全收，后处理的方块会覆盖前者 —— 她看见米捆，实际是橱柜。
+   *
+   * 处理：先到先得，后来的同号条目丢掉。宁可这个状态"未知"（退回空气/不影响），
+   * 也别标成错的方块 —— 错名比未知更糟。
+   */
+  const claimedBy = new Map();
 
   for (const [name, spec] of Object.entries(manifest.blocks ?? {})) {
     const measured = ids.blocks?.[name] ?? [];
@@ -122,10 +133,23 @@ export function installModRegistry(bot, pack) {
       states: stateDesc,
     };
 
+    const kept = [];
+    for (const id of stateIds) {
+      const owner = claimedBy.get(id);
+      if (owner !== undefined && owner !== name) continue;  // 别的方块已经占了
+      if (owner === undefined) claimedBy.set(id, name);
+      kept.push(id);
+    }
+    if (kept.length === 0) continue;   // 全部被别人占了：这个方块宁可不注入
+
+    entry.minStateId = Math.min(...kept);
+    entry.maxStateId = Math.max(...kept);
+    entry.defaultState = Math.min(...kept);
+
     reg.blocks[entry.id] = entry;
     reg.blocksByName[name] = entry;
     reg.blocksArray.push(entry);
-    for (const id of stateIds) reg.blocksByStateId[id] = entry;
+    for (const id of kept) reg.blocksByStateId[id] = entry;
 
     if (shapes) {
       const shape = box ? [[box[0], box[1], box[2], box[3], box[4], box[5]]] : [];
@@ -133,7 +157,7 @@ export function installModRegistry(bot, pack) {
       shapes.shapes[shapeId] = shape;
       shapes.blocks[name] = [shapeId];
     }
-    observed.push({ entry, min: Math.min(...stateIds), span });
+    observed.push({ entry, min: entry.minStateId, span });
     blocks++;
     states += stateIds.length;
   }

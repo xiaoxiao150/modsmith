@@ -18,7 +18,7 @@ import net from 'node:net';
 import { Vec3 } from 'vec3';
 import { readManifest } from './manifest-io.mjs';
 import { writeIds } from './manifest-io.mjs';
-import { installMineflayerFixes, setModsDir } from './cortico-bridge.mjs';
+import { installMineflayerFixes, installModRegistry, setModsDir } from './cortico-bridge.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -88,7 +88,7 @@ export default async function cmdCalibrate(args, io) {
   const bx = Number(args.x ?? 400);
   const by = Number(args.y ?? 200);
   const bz = Number(args.z ?? 400);
-  const outPath = String(args.ids ?? manifestPath.replace(/\.json$/, '-ids.json'));
+  const outPath = String(args.out ?? args.ids ?? manifestPath.replace(/\.json$/, '-ids.json'));
   if (typeof args['mods-dir'] === 'string') setModsDir(args['mods-dir']);
 
   const cmd = await makeRcon(host, rconPort, rconPassword);
@@ -108,6 +108,10 @@ export default async function cmdCalibrate(args, io) {
 
   try {
   await cmd(`forceload add ${bx - 16} ${bz - 16} ${bx + 16} ${bz + 16}`);
+  // 量测位置下面必须有支撑：否则方块放下就掉，"连读两次一致"会一直读到 0。
+  // 每次开跑都重铺一次（上一轮的清理会把这里清成空气）。
+  await cmd(`fill ${bx - 1} ${by - 1} ${bz - 1} ${bx + 1} ${by - 1} ${bz + 1} minecraft:stone`);
+  await cmd(`fill ${bx - 1} ${by} ${bz - 1} ${bx + 1} ${by + 3} ${bz + 1} minecraft:air`);
   await cmd(`tp ${username} ${bx + 0.5} ${by} ${bz + 0.5}`);
   await new Promise((res, rej) => { bot.once('spawn', res); bot.once('error', rej); });
   await sleep(1200);
@@ -122,6 +126,7 @@ export default async function cmdCalibrate(args, io) {
   await waitFor(read, () => true, 10000);
 
   const blocks = {};
+  const items = {};
   const failed = [];
   const propsKey = (props) => Object.entries(props ?? {}).sort(([a], [b]) => a.localeCompare(b))
     .map(([k, v]) => `${k}=${v}`).join(',');
@@ -202,7 +207,6 @@ export default async function cmdCalibrate(args, io) {
   // 关键（实测出来的）：没注入注册表时，模组物品在客户端眼里名字是 `unknown`，但
   // **`type` 就是它真正的数字 id**。所以不能按名字找，只能按"背包里多出来的那一件"取。
   // 位置也稳：每给一件就落在下一个空槽，槽号递增。
-  const items = {};
   const itemNames = Object.keys(manifest.items ?? {});
   const usedSlots = () => new Set((bot.inventory?.items?.() ?? []).map((it) => it.slot));
 
@@ -280,6 +284,80 @@ export default async function cmdCalibrate(args, io) {
     failed,
   };
 
+  // ---- 自检：量出来的 id 到底对不对 ----
+  //
+  // 为什么必须验：`/setblock` 对一个"放不住"的方块（告示牌要墙/顶、作物要耕地）会
+  // 悄悄失败，客户端读回的是上一格的残留值。实测农夫乐事有 71 个单状态方块全被记成
+  // 同一个 stateId —— 注入后它们会变成"同一个方块"，她看见米捆其实是橱柜。
+  //
+  // 办法：拿刚量到的 ids 直接把注册表注进当前 bot，再逐个放一遍读名字。名字不对的
+  // 就把这个方块的 id 全删掉 —— 宁可未知，不能错名。
+  if (args['no-selfcheck'] !== true) {
+    process.stderr.write('  自检：把量到的 id 注进注册表，逐个核对方块名...\n');
+    const tempPack = {
+      manifest,
+      ids: { mod: manifest.mod, version: manifest.version, blocks, items, failed },
+    };
+    // 中途注入不会重建 prismarine-block 的 shapes（那一步只在 inject_allowed 时做），
+    // 物理引擎下一帧就会炸在 block.shapes 上。验名字用不着物理，先关掉。
+    const physicsWas = bot.physicsEnabled;
+    bot.physicsEnabled = false;
+    let injected = true;
+    try {
+      installModRegistry(bot, tempPack);
+    } catch (err) {
+      injected = false;
+      process.stderr.write('  自检跳过（注册表注入失败）：' + err.message + '\n');
+    }
+    const bad = [];
+    // 作物类方块必须长在耕地上，否则 setblock 会立刻掉掉，自检必然失败
+    const cropNames = new Set([
+      ...Object.keys(manifest.crops ?? {}).map((c) => (c.includes(':') ? c : `${manifest.namespace ?? ''}:${c}`)),
+      ...Object.values(manifest.crops ?? {}).flatMap((c) => (c.aliases ?? [])
+        .map((a) => (a.includes(':') ? a : `${manifest.namespace ?? ''}:${a}`))),
+    ]);
+    for (const name of (injected ? Object.keys(blocks) : [])) {
+      // 非作物也要有支撑面，否则方块会掉下去 —— 用石头；作物用耕地
+      const soil = cropNames.has(name) ? 'minecraft:farmland' : 'minecraft:stone';
+      await cmd('setblock ' + bx + ' ' + (by - 1) + ' ' + bz + ' ' + soil);
+      await cmd('setblock ' + bx + ' ' + by + ' ' + bz + ' ' + name);
+      await sleep(260);
+      const b = bot.blockAt(at);
+      const seen = b?.name ?? '';
+      if (seen !== name) {
+        // 作物类自检失败多半是环境原因（要真种、要长在耕地上），不是 id 错。
+        // 这类只标注不删 —— 删了她就完全不认识这个方块了，比"没验过"更糟。
+        const environmental = cropNames.has(name);
+        bad.push({ block: name, seen, kept: environmental });
+        if (!environmental) {
+          delete blocks[name];
+          delete ids.blocks[name];
+        }
+      }
+    }
+    await cmd('setblock ' + bx + ' ' + by + ' ' + bz + ' minecraft:air');
+    await cmd('setblock ' + bx + ' ' + (by - 1) + ' ' + bz + ' minecraft:stone');
+    bot.physicsEnabled = physicsWas;
+    if (!injected) {
+      process.stderr.write('  自检没做：注册表没注上\n');
+    } else if (bad.length > 0) {
+      process.stderr.write('  自检剔除 ' + bad.length + ' 个量错的方块（名字对不上）：\n');
+      for (const b of bad.slice(0, 8)) {
+        process.stderr.write('    ' + b.block + ' 读回来是 ' + (b.seen || '(空)') + '\n');
+      }
+      if (bad.length > 8) process.stderr.write('    ...还有 ' + (bad.length - 8) + ' 个\n');
+      for (const b of bad) {
+        failed.push({
+          block: b.block,
+          kind: b.kept ? 'environmental' : 'unverified',
+          resp: '读回来是 ' + (b.seen || '(空)'),
+        });
+      }
+    } else {
+      process.stderr.write('  自检通过：' + Object.keys(blocks).length + ' 个方块全部对得上\n');
+    }
+  }
+
   // ---- --place：真实放置补测 setblock 改不动属性的方块 ----
   if (args.place) {
     await calibrateByPlacement({ bot, cmd, ids, manifest, username, bx, by, bz, io });
@@ -294,12 +372,12 @@ export default async function cmdCalibrate(args, io) {
     + `物品 可用 ${Object.keys(items).length} / 声明 ${itemNames.length}`);
   if (blockOnly > 0) console.error(`  ${blockOnly} 件只有方块形式（没有 item model），拿不到是正常的`);
   if (unknownItem > 0) console.error(`  ! ${unknownItem} 件判成"服务端不认这个物品"，值得看一眼`);
-  } finally {
-    await cleanup();
-  }
   console.error(`  写入 ${outPath}`);
   if (failed.length > 0) {
-    console.error(`  失败的（多为只有方块形式、没有物品形式的 id）：${failed.slice(0, 6).map((f) => f.item ?? f.block).join(', ')}${failed.length > 6 ? ' …' : ''}`);
+    console.error(`  失败 ${failed.length} 项：${failed.slice(0, 6).map((f) => f.item ?? f.block).join(', ')}${failed.length > 6 ? ' …' : ''}`);
+  }
+  } finally {
+    await cleanup();
   }
   console.log(outPath);
 }

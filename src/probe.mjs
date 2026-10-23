@@ -230,12 +230,20 @@ export default async function cmdProbe(args, io) {
 
   // 1) 容器候选：实测说了算
   const containerOk = [];
-  const containerNo = [];
+  const containerNo = [];     // 测过，确实打不开
+  const containerUntested = []; // 没测成（放不下去），保持原判
   const candidates = Array.isArray(manifest.containers) ? manifest.containers : [];
   for (const name of candidates) {
     const r = await session.probeOne(name);
-    if (r.opened) containerOk.push({ name, type: r.type, slots: r.slots });
-    else containerNo.push({ name, error: r.error });
+    if (r.opened) {
+      containerOk.push({ name, type: r.type, slots: r.slots });
+    } else if (r.placed === false) {
+      // 没放下去 = 没测成，不是"不能用"。注册表 id 不对时会走到这里。
+      // 这种必须保留在容器表里，否则一次没测成就把好好的橱柜删了。
+      containerUntested.push({ name, error: r.error });
+    } else {
+      containerNo.push({ name, error: r.error });
+    }
   }
 
   // 2) 站点：右键开不开窗 —— "声明 vs 实测"唯一能自动化的硬约束
@@ -251,6 +259,7 @@ export default async function cmdProbe(args, io) {
       ok: containerOk.map((c) => c.name),
       detail: containerOk,
       failed: containerNo,
+      untested: containerUntested,
     },
     stations: stationResult,
   };
@@ -273,6 +282,7 @@ export default async function cmdProbe(args, io) {
   console.error(`\n容器：能开 ${containerOk.length} / 候选 ${candidates.length}`);
   for (const c of containerOk) console.error(`  ✓ ${c.name}  ${c.type} ${c.slots} 槽`);
   for (const c of containerNo) console.error(`  ✗ ${c.name}  ${c.error}`);
+  for (const c of containerUntested) console.error(`  ? ${c.name}  没测成（保持原判）：${c.error}`);
   if (stationResult.length > 0) {
     console.error('\n站点：');
     for (const s of stationResult) {

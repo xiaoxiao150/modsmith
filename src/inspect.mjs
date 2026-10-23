@@ -34,7 +34,7 @@ export function packNameOf(modId, version, opts = {}) {
 }
 
 /** 目录里有没有同一个 mod 的另一个包名（返回文件名，不含 .json）。 */
-function findExistingPack(dir, mod, selfName) {
+export function findExistingPack(dir, mod, selfName) {
   try {
     for (const f of readdirSync(dir)) {
       if (!f.endsWith('.json') || f.endsWith('-ids.json') || f === 'manifest.schema.json') continue;

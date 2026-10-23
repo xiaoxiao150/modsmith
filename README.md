@@ -54,6 +54,18 @@ modsmith verify ./out/somemod-1.0.0.json --pack somemod-1.0.0
 
 新 mod 要的是第四种机制（现有三种套不上）时才需要动代码——那属于真正的新玩法。
 
+## 校准为什么要自检
+
+`/setblock` 对一个"放不住"的方块会悄悄失败，客户端读回的是上一格的残留值。实测农夫乐事
+有 71 个单状态方块（各色告示牌）全被记成同一个 stateId —— 注入后它们会变成"同一个方块"，
+机器人看见米捆其实是橱柜。
+
+所以 `calibrate` 量完会用刚量到的 ids 把注册表注进当前连接，逐个放一遍读名字：
+
+- 名字对不上 → 删掉这个方块的 id（**错了比未知更糟**）
+- 作物类对不上 → 只标记 `kind: 'environmental'`，不删（它们要真种，setblock 摆不住）
+- 注入后同一个 stateId 被多个方块认领 → 先到先得，后来的丢掉
+
 ## 为什么有 `learn` 这一步
 
 静态分析能告诉你"有哪些方块、什么配方"，但**不能**告诉你"这个方块是工作站、要放料进去再
@@ -75,7 +87,17 @@ modsmith verify ./out/somemod-1.0.0.json --pack somemod-1.0.0
 `modsmith sidecar` 生成一个最小 Fabric 模组：查 RecipeManager → 验料 → 扣料 → 等熟成 →
 给成品。它**只做这一件事**，不碰文件、网络、别的方块。
 
-**生成的模组不会被自动安装。** 编译、在临时服上验一遍、确认后才由人决定是否放进生产服。
+三道安全约束（生成时就写进源码）：
+
+- **权限门**：命令挂 `.requires(hasPermissionLevel(N))`，`--op-level` 默认 2。
+  服务器上任意玩家不能替机器人消耗材料。
+- **热源检查**：站点声明了 `heatTag` 才生成。锅放泥地上会被拒
+  （`is not heated: put a heat source ... under it`）。
+- **原料匹配两层**：先按"物品 + 组件"精确比，再退回只比物品 —— 带自定义组件的原料
+  不会明明在包里却报"缺料"。
+
+生成后会**真编译一次**（`--no-build` 可跳过），Gradle 从 `MODSMITH_GRADLE` 或 PATH 找。
+**生成的模组不会被自动安装**，编译产物留在 `sidecars/<mod>/build/libs/`。
 
 ## 作物推断的边界
 
@@ -98,6 +120,20 @@ MODSMITH_API_KEY    没设就不发 Authorization（本机服务通常不要）
 MODSMITH_MODEL      默认读 /v1/models 的第一条
 ```
 
+## 跟宿主项目对接
+
+`modsmith` 只产出两个文件，任何 mineflayer 项目都能消费：
+
+```
+<pack>.json       语义清单（schema/manifest.schema.json）
+<pack>-ids.json   实测数字 id
+```
+
+包名要和宿主的"当前装载的 mod"配置逐字一致。默认名是 `<mod id>-<MC 版本>-<mod 版本>`；
+如果目标目录里已经有同一个 mod 的清单但名字不同，`inspect` 会直接把该用的 `--pack` 打出来。
+
+校验用 `src/validate.mjs`（和 Cortico 的 `mod-manifest.ts` 同一套规则）。
+
 ## 已知局限
 
 - **只支持 Fabric**。Forge/NeoForge 的 FML 握手是另一套协议，投入产出比差。
@@ -105,6 +141,9 @@ MODSMITH_MODEL      默认读 /v1/models 的第一条
   `unknown`，只有数字 id 是真的。`--debug-items` 会把每一步的槽位摆出来。
   注意快照必须在 `give` **之前**取（给完再取，"新出现的槽"永远是空的——这个坑踩过一次）。
 - 需要客户端渲染才能感知的机制（自定义粒子、纯视觉反馈）做不到，只能写进 `unsupported`。
+- `learn` 的实测验证只能确认**右键开不开窗**这一条硬约束；它验不出"砧板到底要食材+刀
+  还是食材+斧头"。这是必要条件，不是充分条件。
+- 作物必须真种才能验，`setblock` 摆不住，所以它们的自检结论是"未验证"而非"通过"。
 
 ## 开发
 

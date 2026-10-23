@@ -4,7 +4,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
-import { inspectJar } from '../src/inspect.mjs';
+import { findExistingPack, inspectJar } from '../src/inspect.mjs';
 import { readSidecar, writeSidecar, sidecarTemplateFrom } from '../src/crops-sidecar.mjs';
 import { writeManifest, manifestPaths } from '../src/manifest-io.mjs';
 import { VERSION } from '../src/index.mjs';
@@ -116,6 +116,13 @@ async function cmdInspect(args) {
   const outDir = resolve(typeof args.out === 'string' ? args.out : './mods');
   const paths = manifestPaths(outDir, result.packName);
   writeManifest(paths.manifest, result.manifest);
+
+  // 同目录里已有这个 mod 的清单、但文件名不一样 → 多半是要接已有部署，把 --pack 告诉人
+  const existingPack = findExistingPack(outDir, result.manifest.mod, result.packName);
+  if (existingPack) {
+    console.error(`  ! 这个目录里已有 ${existingPack}（同一个 mod）。`);
+    console.error(`    要接它请重跑：modsmith inspect <jar> --out ${outDir} --pack ${existingPack}`);
+  }
 
   if (typeof args['write-sidecar'] === 'string') {
     const target = resolve(args['write-sidecar']);

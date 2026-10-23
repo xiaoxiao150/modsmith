@@ -541,7 +541,7 @@ export default async function cmdSidecar(args, io) {
     const heatTag = typeof st.heatTag === 'string' ? st.heatTag.trim() : '';
     const heatCheck = heatTag
       ? `        if (!isHeated(world, station)) {
-            return fail(source, "_@@STATION_LABEL@@ is not heated: put a heat source (stove / lit campfire) under it");
+            return fail(source, "@@STATION_LABEL@@ is not heated: put a heat source (stove / lit campfire) under it");
         }`
       : '';
     const heatMethod = heatTag
@@ -601,5 +601,32 @@ export default async function cmdSidecar(args, io) {
 
   console.error('\n⚠️  生成的模组**没有**被安装到任何服务器。');
   console.error('   先用 gradle build 编译，再在临时服上验一遍，确认后才考虑生产服。');
+  // ---- 真编译一次 ----
+  if (args['no-build'] !== true) {
+    const gradle = resolveGradle();
+    if (!gradle) {
+      console.error('! 找不到 gradle，跳过编译。用 MODSMITH_GRADLE 指到 gradle 可执行文件。');
+    } else {
+      for (const st of targets) {
+        const modId = ident(ns + '_' + st.id).toLowerCase();
+        const dir = join(outRoot, modId);
+        console.error('编译 ' + modId + '（' + gradle + '）...');
+        const t0 = Date.now();
+        const res = await runGradle(gradle, dir);
+        const secs = Math.round((Date.now() - t0) / 1000);
+        if (res.ok) {
+          const jars = listJars(join(dir, 'build', 'libs'));
+          console.error('  OK ' + secs + 's' + (jars.length > 0 ? ' -> ' + jars.join(', ') : ''));
+        } else {
+          console.error('  FAILED ' + secs + 's');
+          console.error(res.tail.split('\n').slice(-12).map((l) => '    ' + l).join('\n'));
+          process.exitCode = 1;
+        }
+      }
+    }
+  } else {
+    console.error('（--no-build：跳过编译）');
+  }
+
   console.log(outRoot);
 }
