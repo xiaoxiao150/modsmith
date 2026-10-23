@@ -1,0 +1,45 @@
+# AGENTS.md —— modsmith
+
+把 Fabric mod jar 转成"任何 mineflayer 机器人能用"的语义清单。
+[README.md](README.md) 讲怎么用；这份讲**改代码时要守什么**。
+
+## 四条不能破的约束
+
+1. **LLM 只写数据，不写代码。**
+   宿主（Cortico）的技能是封闭 TS 联合类型，运行时注册不了新技能 —— 让模型生成技能代码
+   必然失败。`learn` 的产出永远是 JSON，且必须过 `validateLearned`（机制名限定三种、
+   方块必须在清单里、sidecar 命令必须带 `{recipe}`）。
+
+2. **清单里的 `command` 只能指向"编译成功过"的模组。**
+   `sidecar` 先编译后写回；编译部分失败时一条都不写；`--no-build` 默认不写，
+   要写必须显式 `--write-command` 并且会警告。
+   违反这条的后果是**静默失败**：机器人发出命令、没人应答、几秒后才超时。
+   回归测试：`test/sidecar-cli.test.mjs`。
+
+3. **错名比未知更糟。**
+   - `calibrate` 自检对不上就删（作物例外：它们要真种，标 `environmental` 不删）
+   - 跨方块重复的 stateId 一律去重，先声明者得
+   - `probe` 只按实测回写容器表；"没测成"不等于"不能用"，保留原判
+   - 站点声明与实测矛盾时只标 `needsReview`，**不改 kind**（那是 learn 的活）
+
+4. **绝不自动安装生成的模组。**
+   编译产物留在 `sidecars/<mod>/build/libs/`，装不装由人决定。
+
+## 改代码时的习惯
+
+- 能写成纯函数的就写成纯函数（`manifest-probe` / `validate` / `crops` / `tag-fallback` /
+  `manifest-io`），测试覆盖它们；只有必须连服务器的（`calibrate` / `probe` / `verify` /
+  `sidecar --build`）才写 CLI 集成测试。
+- **测试不许依赖本机路径**：用 `test/fixtures/tiny-mod.jar`（2.8KB 合成夹具，覆盖了
+  单数/复数资源目录、tag 展开、作物推断、旧版 loot_tables）。
+- 每个真实事故都在 `test/` 里留一条回归。已经钉住的有：
+  - `sidecar --no-build` 不许改清单
+  - `inspect` 给了 `--pack` 不许提示"已有同名 mod"（会指回自己刚写的）
+- 判据写进日志/回执里时要能对上：报告的数字必须是**实际用到的那个数**
+  （例如状态数按去重后累加，不按测量条数）。
+
+## 与宿主的边界
+
+modsmith **不 import 宿主的代码**（`src/cortico-bridge.mjs` 是自带的精简注入实现）。
+理由是它要能独立发出去。清单格式（`schema/manifest.schema.json` + `src/validate.mjs`）
+就是两边唯一的契约。
