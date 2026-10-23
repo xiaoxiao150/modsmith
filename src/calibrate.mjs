@@ -310,26 +310,41 @@ export default async function cmdCalibrate(args, io) {
     const claimed = new Map();
     const dupDropped = [];
     const sameBlockDropped = [];
-    for (const name of Object.keys(manifest.blocks ?? {})) {
-      const list = blocks[name];
-      if (!Array.isArray(list)) continue;
-      const kept = [];
-      for (const e of list) {
-        const id = e.stateId;
-        if (!(id > 0)) continue;
-        const owner = claimed.get(id);
-        if (owner === undefined) {
-          claimed.set(id, name);
-          kept.push(e);
-        } else if (owner !== name) {
-          dupDropped.push({ block: name, stateId: id, owner });
-        } else {
-          // 同一个方块内部重复：也要记账。静默丢掉的话，报告里的"状态数"是假的
-          sameBlockDropped.push({ block: name, stateId: id });
+
+    /** 一遍认领：按给定顺序扫所有方块，谁先声明归谁。 */
+    const claimAll = (prefer) => {
+      for (const name of Object.keys(manifest.blocks ?? {})) {
+        const list = blocks[name];
+        if (!Array.isArray(list)) continue;
+        const kept = (blocks[name] = list.filter(() => true));
+        kept.length = 0;
+        for (const e of list) {
+          const id = e.stateId;
+          if (!(id > 0)) continue;
+          // prefer=true 时这一轮只处理"真实放置量到的"，其余留到下一轮
+          const isPlaced = e.note === '真实放置校准';
+          if (prefer !== isPlaced) { kept.push(e); continue; }
+          const owner = claimed.get(id);
+          if (owner === undefined) {
+            claimed.set(id, name);
+            kept.push(e);
+          } else if (owner !== name) {
+            dupDropped.push({ block: name, stateId: id, owner });
+          } else {
+            sameBlockDropped.push({ block: name, stateId: id });
+          }
         }
       }
-      if (kept.length === 0) delete blocks[name];
-      else blocks[name] = kept;
+    };
+
+    // **真实放置量到的 id 先认领。** `/setblock` 改不动属性时读到的是残留值，
+    // 而真实放置读到的是这个方块的真身 —— 冲突时让可信的那个赢，否则
+    // 一个方块的唯一真 id 会被别的方块抢走，自检再把它整个删掉（实测 15 个）。
+    claimAll(true);
+    claimAll(false);
+
+    for (const name of Object.keys(blocks)) {
+      if (!Array.isArray(blocks[name]) || blocks[name].length === 0) delete blocks[name];
     }
     if (dupDropped.length > 0) {
       process.stderr.write(`  去重：${dupDropped.length} 条重复 stateId 被丢弃（归先声明的方块）\n`);
