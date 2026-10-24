@@ -46,3 +46,17 @@ export function checkServerMods(
   stored: ServerModsFingerprint | undefined,
   dir: string | undefined,
 ): { ok: boolean; fatal: boolean; lines: string[] };
+
+/** 清单 → mineflayer 可消费的合成视图（pattern/key 或候选数组，已归一）。 */
+export interface CraftRecipeView {
+  id?: string;
+  type: 'crafting_shaped' | 'crafting_shapeless';
+  pattern?: string[];
+  key?: Record<string, { item?: string; id?: string; tag?: string } | Array<{ item?: string; id?: string; tag?: string }>>;
+  ingredients?: Array<Array<{ item?: string; id?: string; tag?: string }>>;
+  result: { id: string; count: number };
+}
+export function craftRecipeViews(manifest: object): CraftRecipeView[];
+
+/** vanilla 物品数字 id → 全名（minecraft-data 表）。 */
+export function vanillaItemTable(mcVersion?: string): Record<string, string>;

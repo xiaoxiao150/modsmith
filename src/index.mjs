@@ -13,6 +13,8 @@ import { writeManifest } from './manifest-io.mjs';
 import { installModRegistry, installMineflayerFixes, loadModPack, setModsDir, listPacks } from './cortico-bridge.mjs';
 import { validateManifest, hasErrors, describeIssues, parseManifest, statsOf } from './validate.mjs';
 import { checkServerMods, fingerprintDir } from './server-fingerprint.mjs';
+import { craftRecipeViews } from './recipes-view.mjs';
+import { vanillaItemTable } from './recipes-join.mjs';
 
 export { inspectJar, readSidecar, writeSidecar, sidecarTemplateFrom, writeManifest };
 
@@ -21,7 +23,7 @@ export { inspectJar, readSidecar, writeSidecar, sidecarTemplateFrom, writeManife
 export {
   installModRegistry, installMineflayerFixes, loadModPack, setModsDir, listPacks,
   validateManifest, hasErrors, describeIssues, parseManifest, statsOf,
-  checkServerMods, fingerprintDir,
+  checkServerMods, fingerprintDir, craftRecipeViews, vanillaItemTable,
 };
 
-export const VERSION = '0.2.0';
+export const VERSION = '0.3.0';
