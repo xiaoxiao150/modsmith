@@ -158,6 +158,7 @@ export function validateLearned(raw, manifest) {
       if (!command.includes('{recipe}')) { errors.push(`${id}：command 缺 {recipe}`); continue; }
       spec.command = command;
       if (st.recipeType) spec.recipeType = String(st.recipeType);
+      if (Number.isFinite(Number(st.cookTime))) spec.cookTime = Number(st.cookTime);
     }
     cleaned.stations.push(spec);
   }

@@ -399,7 +399,7 @@ public final class @@CLASS@@Mod implements ModInitializer {
 `;
 
 const BUILD_GRADLE = `plugins {
-    id 'fabric-loom' version '1.9-SNAPSHOT'
+    id 'fabric-loom' version '@@LOOM@@'
     id 'java'
 }
 
@@ -415,9 +415,9 @@ repositories {
 
 dependencies {
     minecraft "com.mojang:minecraft:@@MCVERSION@@"
-    mappings "net.fabricmc:yarn:@@MCVERSION@@+build.3:v2"
-    modImplementation "net.fabricmc:fabric-loader:0.16.9"
-    modImplementation "net.fabricmc.fabric-api:fabric-api:0.115.6+1.21.1"
+    mappings "net.fabricmc:yarn:@@MCVERSION@@+build.@@YARNBUILD@@:v2"
+    modImplementation "net.fabricmc:fabric-loader:@@LOADER@@"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:@@FABRICAPI@@"
 }
 
 processResources {
@@ -526,6 +526,15 @@ export default async function cmdSidecar(args, io) {
   const mcVersion = String(args['mc-version'] ?? '1.21.1');
   const ns = manifest.namespace ?? manifest.mod.replace(/-/g, '_');
 
+  /** gradle 工具链按 MC 版本查：换版本在这里加一条，别改模板。 */
+  const GRADLE_VERSIONS = {
+    '1.21.1': { loom: '1.9-SNAPSHOT', yarnBuild: '3', loader: '0.16.9', fabricApi: '0.115.6+1.21.1' },
+  };
+  const gradleRow = GRADLE_VERSIONS[mcVersion];
+  if (!gradleRow) {
+    io.fatal(`不认识 MC ${mcVersion} 对应的工具链版本：往 src/sidecar.mjs 的 GRADLE_VERSIONS 加一条（loom/yarn build/loader/fabric-api）`);
+  }
+
   for (const st of targets) {
     const [, blockShort] = String(st.block).split(':');
     const cmd = commandName(st);
@@ -541,7 +550,8 @@ export default async function cmdSidecar(args, io) {
     mkdirSync(resDir, { recursive: true });
 
     const recipeType = st.recipeType ?? `${ns}:cooking`;
-    const cookTime = 200;
+    // 熟成时间由站点声明（learn 产出、validateLearned 收进来的），没声明才落默认
+    const cookTime = Number.isFinite(Number(st.cookTime)) ? Number(st.cookTime) : 200;
     // 热源检查：站点声明了 heatTag 才生成，否则留空（不硬加规则）
     const heatTag = typeof st.heatTag === 'string' ? st.heatTag.trim() : '';
     const heatCheck = heatTag
@@ -580,6 +590,10 @@ export default async function cmdSidecar(args, io) {
       '@@VERSION@@': GENERATED_MOD_VERSION,
       '@@GROUP@@': `dev.modsmith`,
       '@@MCVERSION@@': mcVersion,
+      '@@LOOM@@': gradleRow.loom,
+      '@@YARNBUILD@@': gradleRow.yarnBuild,
+      '@@LOADER@@': gradleRow.loader,
+      '@@FABRICAPI@@': gradleRow.fabricApi,
       '@@NAME@@': `${manifest.mod} ${label} sidecar`,
     };
     const fill = (tpl) => Object.entries(subs).reduce((acc, [k, v]) => acc.split(k).join(v), tpl);
