@@ -56,6 +56,14 @@ export function listPacks() {
  * 把 manifest + 实测 id 合并进 bot.registry。
  * 返回注入的方块/状态/物品数，供日志。
  */
+/** 从方块 tags 推 prismarine material：挖速/工具判定用，推不出就 default。 */
+function materialOf(tags) {
+  for (const kind of ['pickaxe', 'axe', 'shovel', 'hoe', 'shears']) {
+    if (tags.includes(`mineable/${kind}`)) return `mineable/${kind}`;
+  }
+  return 'default';
+}
+
 export function installModRegistry(bot, pack) {
   const reg = bot.registry;
   if (!reg?.blocksByStateId || !reg.itemsByName) throw new Error('registry 形状不对，注入中止');
@@ -121,9 +129,9 @@ export function installModRegistry(bot, pack) {
       displayName: manifest.names?.[`block.${name.split(':')[1]}`]?.zh ?? name.split(':')[1],
       hardness: solid ? 1.5 : 0,
       boundingBox: solid ? 'block' : 'empty',
-      diggable: true,
+      diggable: solid,
       transparent: !solid,
-      material: 'default',
+      material: materialOf(spec.tags ?? []),
       harvestTools: {},
       drops: spec.drops ?? [],
       minStateId: Math.min(...stateIds),
@@ -155,18 +163,19 @@ export function installModRegistry(bot, pack) {
       const shape = box ? [[box[0], box[1], box[2], box[3], box[4], box[5]]] : [];
       const shapeId = nextShapeId++;
       shapes.shapes[shapeId] = shape;
-      shapes.blocks[name] = [shapeId];
+      shapes.blocks[name] = kept.map(() => shapeId);
     }
-    observed.push({ entry, min: entry.minStateId, span });
+    observed.push({ entry, min: entry.minStateId, span: Math.max(kept.length, spec.states?.length ?? 0) });
     blocks++;
     states += kept.length;
   }
 
   // 实测没覆盖到的状态按区间补齐，别留成"未知方块=空气"。
   //
-  // 但**不能抢别的方块实测过的 stateId**：模组方块的 id 是连着一片的，某个方块没量全时
-  // 它的区间尾巴会伸进隔壁方块的地盘，硬填会把隔壁标成它（实测：三个挂墙告示牌被填成了
-  // `gleaming_salad_block`）。"错名比未知更糟"，所以只填没被任何人量到的号。
+  // span 用 max(实测条数, 声明状态数)：Fabric 给每个方块的 stateId 是**按声明状态数
+  // 连号**的，没量全时它的区间尾巴伸进隔壁方块的地盘——按实测宽度补会把隔壁标成它
+  // （实测：三个挂墙告示牌被填成了 gleaming_salad_block）。
+  // 但也**不能抢别的方块实测过的 stateId**："错名比未知更糟"，只填没被任何人量到的号。
   const claimed = new Set();
   for (const list of Object.values(ids.blocks ?? {})) {
     for (const m of list) if (m.stateId > 0) claimed.add(m.stateId);
