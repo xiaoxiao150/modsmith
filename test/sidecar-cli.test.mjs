@@ -3,11 +3,12 @@
 // 清单里的 command 指向一个没装上的模组 —— 机器人会去调不存在的命令。
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { stationConfigOf } from '../src/sidecar.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/modsmith.mjs', import.meta.url));
 const FIXTURE = fileURLToPath(new URL('./fixtures/tiny-mod.jar', import.meta.url));
@@ -46,6 +47,42 @@ test('sidecar --no-build 不改清单里的 command', () => {
       '没编译就不该动命令');
     assert.match(r.stderr, /没有.{0,4}写回/, '应该明确说没写回');
   });
+});
+
+test('sidecar 产出通用模组读的站点配置（不是每站点一份代码）', () => {
+  withManifest(({ dir, file }) => {
+    const r = run(['sidecar', file, '--out', join(dir, 'sc'), '--no-build']);
+    assert.equal(r.status, 0, r.stderr);
+    const cfgPath = join(dir, 'sc', 'm', 'config', 'modsmith-sidecar', 'm.json');
+    assert.ok(existsSync(cfgPath), '配置该在 sidecars/<pack>/config/modsmith-sidecar/<pack>.json');
+    const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
+    assert.equal(cfg.pack, 'm');
+    assert.equal(cfg.stations.length, 1);
+    assert.deepEqual(cfg.stations[0], {
+      id: 'pot',
+      label: 'pot',
+      command: 'pot',
+      block: 'tinymod:pot',
+      recipeType: 'tinymod:cooking',
+      cookTime: 200,
+      opLevel: 2,
+    });
+  });
+});
+
+test('stationConfigOf：声明了 cookTime/heatTag 的站点如实进配置，没声明的落默认', () => {
+  const manifest = { mod: 'tinymod', namespace: 'tinymod', names: { 'block.pot': { zh: '锅' } } };
+  const cfg = stationConfigOf(manifest, [
+    { id: 'pot', block: 'tinymod:pot', cookTime: 600, heatTag: 'tinymod:heat_sources' },
+    { id: 'pan', block: 'tinymod:pan' },
+  ], 3);
+  assert.deepEqual(cfg[0], {
+    id: 'pot', label: '锅', command: 'pot', block: 'tinymod:pot',
+    recipeType: 'tinymod:cooking', cookTime: 600, opLevel: 3, heatTag: 'tinymod:heat_sources',
+  });
+  assert.equal(cfg[1].cookTime, 200);
+  assert.equal(cfg[1].heatTag, undefined);
+  assert.equal('heatTag' in cfg[1], false, '没声明就不该带 heatTag 键');
 });
 
 test('sidecar --no-build + --write-command 才写，并警告没验过', () => {

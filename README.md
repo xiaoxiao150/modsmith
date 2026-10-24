@@ -106,20 +106,24 @@ modsmith verify ./out/somemod-1.21.1-1.0.0.json --pack somemod-1.21.1-1.0.0 \
 有些站点的菜单是模组私有的（农夫乐事厨锅实测七种手势都不给原版协议客户端发
 `open_window`）。拿不到界面就没法用，只能在服务端替它做。
 
-`modsmith sidecar` 生成一个最小 Fabric 模组：查 RecipeManager → 验料 → 扣料 → 等熟成 →
-给成品。它**只做这一件事**，不碰文件、网络、别的方块。
+`modsmith sidecar` 产出**一个通用 Fabric 模组**（`templates/sidecar-generic` 真源码，
+每个 MC 版本编译一次永久复用）加**一份站点配置 JSON**：
+`config/modsmith-sidecar/<pack>.json`，模组启动时读它逐站点注册命令。
+接一个新 mod 只是多一份配置，不再生成任何代码。
 
-三道安全约束（生成时就写进源码）：
+命令做的事只有一件：查 RecipeManager → 验料 → 扣料 → 等熟成 → 给成品。
+三道安全约束：
 
-- **权限门**：命令挂 `.requires(hasPermissionLevel(N))`，`--op-level` 默认 2。
+- **权限门**：每条命令挂 `.requires(hasPermissionLevel(opLevel))`（配置项，默认 2）。
   服务器上任意玩家不能替机器人消耗材料。
-- **热源检查**：站点声明了 `heatTag` 才生成。锅放泥地上会被拒
+- **热源检查**：站点配置声明了 `heatTag` 才启用。锅放泥地上会被拒
   （`is not heated: put a heat source ... under it`）。
-- **原料匹配两层**：先按"物品 + 组件"精确比，再退回只比物品 —— 带自定义组件的原料
-  不会明明在包里却报"缺料"。
+- **原料匹配两层**：先按「物品 + 组件」精确比，再退回只比物品 —— 带自定义组件的原料
+  不会明明在包里却报「缺料」。
 
-生成后会**真编译一次**（`--no-build` 可跳过），Gradle 从 `MODSMITH_GRADLE` 或 PATH 找。
-**生成的模组不会被自动安装**，编译产物留在 `sidecars/<mod>/build/libs/`。
+`--build`（默认）会真编译一次，Gradle 从 `MODSMITH_GRADLE` 或 PATH 找。
+**产物不会被自动安装**：jar 留在 `sidecars/.build/build/libs/`，配置留在
+`sidecars/<pack>/config/`，装不装、装到哪台服，由人决定。
 
 **命令只在编译成功后才写回清单。** 没编译成功的站点，清单保持原样——否则机器人会去调
 一个根本不存在的命令，表现为「发出去没人应答」，几秒后才超时，比报错难查得多。

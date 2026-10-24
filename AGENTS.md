@@ -27,7 +27,9 @@
    - 站点声明与实测矛盾时只标 `needsReview`，**不改 kind**（那是 learn 的活）
 
 4. **绝不自动安装生成的模组。**
-   编译产物留在 `sidecars/<mod>/build/libs/`，装不装由人决定。
+   通用侧车 jar 留在 `sidecars/.build/build/libs/`、站点配置留在 `sidecars/<pack>/config/`，
+   装不装由人决定。`sidecar` 只产出配置与编译产物，**不生成站点专属代码**
+   （通用模组读配置，`templates/sidecar-generic`）。
 
 ## 改代码时的习惯
 

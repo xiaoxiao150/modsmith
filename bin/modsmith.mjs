@@ -86,11 +86,14 @@ const USAGE = `modsmith ${VERSION} — 把 Fabric mod jar 变成机器人能用�
       模型走环境变量：MODSMITH_BASE_URL / MODSMITH_API_KEY / MODSMITH_MODEL
 
   modsmith sidecar <manifest.json> [选项]
-      给 sidecar-recipe 型站点生成侧车模组源码，编译通过后才把命令写回清单。
+      产出 sidecar-recipe 型站点的服务端侧车：一份站点配置 JSON（通用模组运行时读它）
+      + 编译一次通用模组（templates/sidecar-generic，每个 MC 版本编译一回就够）。
+      编译通过后才把命令写回清单。
 
-      --out <dir>            生成到哪个目录（默认 ./sidecars）
-      --station <id>         只生成某一个站点
+      --out <dir>            产物目录（默认 ./sidecars）
+      --station <id>         只处理某一个站点
       --op-level <n>         命令要求的权限等级，默认 2（0 = 不设门）
+      --mc-version <ver>     工具链版本查 GRADLE_VERSIONS 表，默认 1.21.1
       --no-build             不编译；**默认也不写回清单**，因为没验过
       --write-command        强制写回命令（配 --no-build 时表示你自担风险）
       Gradle 从 MODSMITH_GRADLE 或 PATH 找
