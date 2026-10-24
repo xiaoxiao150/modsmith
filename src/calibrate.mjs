@@ -446,7 +446,6 @@ export default async function cmdCalibrate(args, io) {
     }
   }
 
-  // ---- --place：真实放置补测 setblock 改不动属性的方块 ----
   writeIds(outPath, ids);
 
   const okBlocks = Object.keys(blocks).length;
@@ -499,13 +498,30 @@ async function calibrateByPlacement({ bot, cmd, ids, manifest, username, bx, by,
   const spot = new Vec3(bx + 1, by, bz);
   const ref = new Vec3(bx + 1, by - 1, bz);
   let done = 0;
+  let confirmed = 0;   // 放下去了，id 与已量到的一致
+  let added = 0;       // 放下去了，量到新 id
+  let failedPlace = 0; // 没放下去
   for (const [name] of suspects) {
     await cmd(`clear ${username}`);
     const resp = await cmd(`give ${username} ${name} 1`);
     if (FAIL_RE.test(resp)) continue;
-    const item = await waitFor(() => bot.inventory.items().find((i) => i.name === name
-      || i.name === name.split(':')[1]) ?? null, 1200);
-    if (!item) continue;
+    // **按数字 id 找，不按名字。** 这个 bot 没注入注册表，模组物品在客户端眼里
+    // 名字一律是 `unknown`，`i.name === name` 永远不成立 —— 之前就是这里一直
+    // `continue`，放置补测跑了个寂寞（踩过）。
+    const itemType = ids.items?.[name];
+    const pick = () => {
+      const list = bot.inventory.items();
+      const byId = typeof itemType === 'number' ? list.find((i) => i.type === itemType) : null;
+      return byId ?? list.find((i) => i.name === name || i.name === name.split(':')[1]) ?? null;
+    };
+    // waitFor 是 (read, ok, ms) 三参数：少传一个 `ok` 时 ms 会是 undefined，
+    // 循环一次都不跑、立刻返回 null —— 之前"拿了物品却没等到"就是这么来的。
+    const item = await waitFor(pick, (v) => v !== null, 2500);
+    if (!item) {
+      process.stderr.write(`    拿不到物品：${name}（ids.items 里${typeof itemType === 'number' ? `是 ${itemType}` : '没有' }，背包 ${bot.inventory.items().length} 件）
+`);
+      continue;
+    }
 
     await cmd(`setblock ${spot.x} ${spot.y} ${spot.z} minecraft:air`);
     await sleep(300);
@@ -534,16 +550,24 @@ async function calibrateByPlacement({ bot, cmd, ids, manifest, username, bx, by,
       if (!list.some((s) => s.stateId === placed.stateId)) {
         list.unshift({ props: {}, stateId: placed.stateId, note: '真实放置校准' });
         ids.blocks[name] = list;
+        added++;
+      } else {
+        confirmed++;   // setblock 量到的就是真身，这里只做确认
       }
-    } else if (done < 3) {
-      process.stderr.write(`    放置没成：${name}（那一格 stateId ${placed?.stateId ?? 0}）
+    } else {
+      failedPlace++;
+      if (done < 3) {
+        process.stderr.write(`    放置没成：${name}（那一格 stateId ${placed?.stateId ?? 0}）
 `);
+      }
     }
     await cmd(`setblock ${spot.x} ${spot.y} ${spot.z} minecraft:air`);
     done++;
     if (done % 5 === 0) process.stderr.write(`  放置 ${done}/${suspects.length}\n`);
   }
   await cmd(`fill ${bx - 4} ${by} ${bz - 4} ${bx + 4} ${by + 3} ${bz + 4} minecraft:air`);
+  // 让结果看得见：confirmed 不写文件（setblock 已经量到了那个 id），added 才会出现在 ids 里
+  console.error(`  放置补测结果：确认 ${confirmed} / 新增 ${added} / 没放成 ${failedPlace}`);
   void manifest;
   void io;
 }
