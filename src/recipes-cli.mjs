@@ -60,7 +60,8 @@ export default async function cmdRecipes(args, io) {
   const vanilla = vanillaItemTable(mcVersion);
   const { entries, unresolved } = joinRecipes(parsed.recipes, ids.items, vanilla);
   const ratio = entries.length / Math.max(1, parsed.recipes.length);
-  console.error(`  翻译成功 ${entries.length}/${parsed.recipes.length}（${(ratio * 100).toFixed(1)}%）`);
+  const unsupported = entries.filter((e) => e.unsupported).length;
+  console.error(`  翻译成功 ${entries.length}/${parsed.recipes.length}（${(ratio * 100).toFixed(1)}%）：可消费 ${entries.length - unsupported} 条，unsupported ${unsupported} 条（SimpleRecipeSerializer，协议里就没有原料）`);
   for (const name of unresolved.slice(0, 6)) console.error(`    翻不出物品名：${name}`);
   if (ratio < threshold) {
     io.fatal(`成功率 ${(ratio * 100).toFixed(1)}% 低于阈值 ${(threshold * 100).toFixed(0)}%：manifest 保持原样（错名比未知更糟）。多数翻不出 = ids 太旧或 vanilla 表缺这个版本`);
