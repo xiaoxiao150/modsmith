@@ -10,7 +10,16 @@
 import { inspectJar } from './inspect.mjs';
 import { readSidecar, writeSidecar, sidecarTemplateFrom } from './crops-sidecar.mjs';
 import { writeManifest } from './manifest-io.mjs';
+import { installModRegistry, installMineflayerFixes, loadModPack, setModsDir, listPacks } from './cortico-bridge.mjs';
+import { validateManifest, hasErrors, describeIssues, parseManifest, statsOf } from './validate.mjs';
 
 export { inspectJar, readSidecar, writeSidecar, sidecarTemplateFrom, writeManifest };
+
+// 宿主消费的窄面：注册表注入、mineflayer 容错、包加载、manifest 校验。
+// 这几样在宿主里曾各有一份拷贝，收敛到这里，宿主按包依赖（README「跟宿主项目对接」）。
+export {
+  installModRegistry, installMineflayerFixes, loadModPack, setModsDir, listPacks,
+  validateManifest, hasErrors, describeIssues, parseManifest, statsOf,
+};
 
 export const VERSION = '0.2.0';
