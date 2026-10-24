@@ -48,13 +48,17 @@ test('shapeless：group/category/ingredients/result 全解析，整包对齐', (
   assert.deepEqual(rec.data, { group: 'yellow_dye', category: 3, ingredients: [[988]], result: { id: 948, count: 2 } });
 });
 
-test('shaped：grid 按 [x][y] 落位（x 外层），w/h 语义字段', () => {
-  // 2×2，字节序按 x 外层：x=0 的两个 y 是 11,12；x=1 是 21,22
-  const grid = [...ingredient([11]), ...ingredient([12]), ...ingredient([21]), ...ingredient([22])];
-  const payload = [...str(''), 0, ...varint(2), ...varint(2), ...grid, ...slot(99), 1];
+test('shaped：grid 按行优先读（wire 是 [行][列]；3×2 不对称才能验证）', () => {
+  // 宽 3 高 2：wire = row0 三个 + row1 三个（用 cutting_board 的真实字节核实过）
+  const payload = [
+    ...str(''), 0, ...varint(3), ...varint(2),
+    ...[11, 12, 13, 21, 22, 23].flatMap((c) => ingredient([c])),
+    ...slot(99), 1,
+  ];
   const r = parseDeclareRecipes(frameOf(['minecraft:t', 0, payload]));
-  assert.deepEqual(r.recipes[0].data.gridWidth, 2);
-  assert.deepEqual(r.recipes[0].data.grid, [[[11], [12]], [[21], [22]]]);
+  assert.deepEqual(r.recipes[0].data.gridWidth, 3);
+  assert.deepEqual(r.recipes[0].data.gridHeight, 2);
+  assert.deepEqual(r.recipes[0].data.grid, [[[11], [12], [13]], [[21], [22], [23]]]);
 });
 
 test('smelting：experience 是大端 f32（网络数值字段），cookTime varint', () => {
@@ -143,14 +147,12 @@ test('join：翻不出的条目进 unresolved，不出错名', () => {
   assert.deepEqual(unresolved, ['x']);
 });
 
-test('join：shaped 的 grid 翻成按行的形状（y 外层）', () => {
+test('join：shaped 的 grid 原样保留（parser 已行优先，不再转置）', () => {
   const parsed = [{
     name: 's', type: 'minecraft:crafting_shaped', typeId: 0,
-    // [x][y]：x=0 是 [beef, dye]，x=1 是 [dye, dye]
     data: { gridWidth: 2, gridHeight: 2, grid: [[[988], [948]], [[948], [948]]], result: { id: 948, count: 2 } },
   }];
   const { entries } = joinRecipes(parsed, MOD, VANILLA);
-  // 行（y 外层）：第 0 行取 grid[0][0], grid[1][0] = beef, dye；第 1 行 = dye, dye（每格是候选列表）
   assert.deepEqual(entries[0].grid, [
     [[{ id: 'minecraft:beef' }], [{ id: 'minecraft:yellow_dye' }]],
     [[{ id: 'minecraft:yellow_dye' }], [{ id: 'minecraft:yellow_dye' }]],

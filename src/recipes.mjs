@@ -178,18 +178,20 @@ function readOne(buf, cur, f, data) {
     data[key] = list; return p;
   }
   if (f.kind === 'grid') {
-    // shaped：gridWidth × gridHeight 个 ingredient（先宽后高）
+    // shaped：**行优先**——wire 的实际顺序是 [行][列]（用 cutting_board 2×3 的字节逐格
+    // 核实过；minecraft-data 的 count=gridWidth 外层与实测不符，它把宽高次序写反了）。
+    // 读成 grid[y][x]，join 不再转置。
     const w = data.gridWidth ?? 0;
     const h = data.gridHeight ?? 0;
     const grid = [];
     let p = cur;
-    for (let x = 0; x < w; x++) {
-      const col = [];
-      for (let y = 0; y < h; y++) {
+    for (let y = 0; y < h; y++) {
+      const row = [];
+      for (let x = 0; x < w; x++) {
         const r = readIngredient(buf, p);
-        col.push(r.items); p = r.next;
+        row.push(r.items); p = r.next;
       }
-      grid.push(col);
+      grid.push(row);
     }
     data[key] = grid; return p;
   }

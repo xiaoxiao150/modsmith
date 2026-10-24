@@ -81,11 +81,12 @@ export function joinRecipes(parsed, modItems, vanillaById) {
       const h = d.gridHeight ?? 0;
       out.width = w;
       out.height = h;
-      // 网络按 [x][y]（先宽后高）存；清单的 pattern 按行（y 外层）读
+      // parser 已按行优先读出 grid[y][x]（wire 的实际顺序就是 [行][列]），这里不再转置。
+      // 之前多转一次，锅/炉灶的合成形状被转了 90°，摆到工作台上服务端认不出配方。
       out.grid = [];
       for (let y = 0; y < h; y++) {
         const row = [];
-        for (let x = 0; x < w; x++) row.push(items(d.grid?.[x]?.[y] ?? []));
+        for (let x = 0; x < w; x++) row.push(items(d.grid?.[y]?.[x] ?? []));
         out.grid.push(row);
       }
       out.result = resultItem(d.result);
