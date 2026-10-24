@@ -18,7 +18,7 @@
 
 3. **错名比未知更糟。**
    - `calibrate` 自检对不上就删（作物例外：它们要真种，标 `environmental` 不删）
-   - 跨方块重复的 stateId 一律去重，先声明者得
+   - 跨方块重复的 stateId 一律去重：真实放置量到的先认领，其余先声明者得
    - `probe` 只按实测回写容器表；"没测成"不等于"不能用"，保留原判
    - 站点声明与实测矛盾时只标 `needsReview`，**不改 kind**（那是 learn 的活）
 
@@ -28,13 +28,14 @@
 ## 改代码时的习惯
 
 - 能写成纯函数的就写成纯函数（`manifest-probe` / `validate` / `crops` / `tag-fallback` /
-  `manifest-io`），测试覆盖它们；只有必须连服务器的（`calibrate` / `probe` / `verify` /
-  `sidecar --build`）才写 CLI 集成测试。
+  `manifest-io` / `calibrate-core`），测试覆盖它们；只有必须连服务器的（`calibrate` /
+  `probe` / `verify` / `sidecar --build`）才写 CLI 集成测试。
 - **测试不许依赖本机路径**：用 `test/fixtures/tiny-mod.jar`（2.8KB 合成夹具，覆盖了
   单数/复数资源目录、tag 展开、作物推断、旧版 loot_tables）。
 - 每个真实事故都在 `test/` 里留一条回归。已经钉住的有：
   - `sidecar --no-build` 不许改清单
   - `inspect` 给了 `--pack` 不许提示"已有同名 mod"（会指回自己刚写的）
+  - 去重与嫌疑判据的形状（`test/calibrate-core.test.mjs`：块内重复、放置 id 优先认领）
 - 判据写进日志/回执里时要能对上：报告的数字必须是**实际用到的那个数**
   （例如状态数按去重后累加，不按测量条数）。
 

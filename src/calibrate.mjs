@@ -18,6 +18,7 @@ import net from 'node:net';
 import { Vec3 } from 'vec3';
 import { readManifest } from './manifest-io.mjs';
 import { writeIds } from './manifest-io.mjs';
+import { computeSuspects, dedupeStateIds, dedupReport } from './calibrate-core.mjs';
 import { installMineflayerFixes, installModRegistry, setModsDir } from './cortico-bridge.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -125,7 +126,7 @@ export default async function cmdCalibrate(args, io) {
   // 等第一列真到客户端，否则整轮全是 null
   await waitFor(read, () => true, 10000);
 
-  const blocks = {};
+  let blocks = {};
   const items = {};
   const failed = [];
 
@@ -298,74 +299,21 @@ export default async function cmdCalibrate(args, io) {
   };
 
   if (args.place) {
-    await calibrateByPlacement({ bot, cmd, ids, manifest, username, bx, by, bz, io });
+    await calibrateByPlacement({ bot, cmd, ids, manifest, username, bx, by, bz });
   }
 
   // ---- 去重：一个 stateId 只能属于一个方块 ----
   //
-  // `/setblock` 改不动属性时，几十个方块会被记成同一个残留 id。注入时"先到先得"会把
-  // 重复的静默丢掉 —— 但清单里留着它们就是假数据：下游任何按 stateId 反查的地方都会
-  // 拿到错的那个方块。这里先在文件层面清干净，谁先声明归谁（manifest 的方块顺序）。
+  // `/setblock` 改不动属性时，几十个方块会被记成同一个残留 id。清单里留着它们就是
+  // 假数据：下游任何按 stateId 反查的地方都会拿到错的那个方块。谁先声明归谁
+  // （manifest 的方块顺序），真实放置量到的先认领。
   {
-    const claimed = new Map();
-    const dupDropped = [];
-    const sameBlockDropped = [];
-
-    /** 一遍认领：按给定顺序扫所有方块，谁先声明归谁。 */
-    const claimAll = (prefer) => {
-      for (const name of Object.keys(manifest.blocks ?? {})) {
-        const list = blocks[name];
-        if (!Array.isArray(list)) continue;
-        const kept = (blocks[name] = list.filter(() => true));
-        kept.length = 0;
-        for (const e of list) {
-          const id = e.stateId;
-          if (!(id > 0)) continue;
-          // prefer=true 时这一轮只处理"真实放置量到的"，其余留到下一轮
-          const isPlaced = e.note === '真实放置校准';
-          if (prefer !== isPlaced) { kept.push(e); continue; }
-          const owner = claimed.get(id);
-          if (owner === undefined) {
-            claimed.set(id, name);
-            kept.push(e);
-          } else if (owner !== name) {
-            dupDropped.push({ block: name, stateId: id, owner });
-          } else {
-            sameBlockDropped.push({ block: name, stateId: id });
-          }
-        }
-      }
-    };
-
-    // **真实放置量到的 id 先认领。** `/setblock` 改不动属性时读到的是残留值，
-    // 而真实放置读到的是这个方块的真身 —— 冲突时让可信的那个赢，否则
-    // 一个方块的唯一真 id 会被别的方块抢走，自检再把它整个删掉（实测 15 个）。
-    claimAll(true);
-    claimAll(false);
-
-    for (const name of Object.keys(blocks)) {
-      if (!Array.isArray(blocks[name]) || blocks[name].length === 0) delete blocks[name];
-    }
-    if (dupDropped.length > 0) {
-      process.stderr.write(`  去重：${dupDropped.length} 条重复 stateId 被丢弃（归先声明的方块）\n`);
-      for (const d of dupDropped.slice(0, 6)) {
-        process.stderr.write(`    ${d.block} 的 ${d.stateId} 其实属于 ${d.owner}\n`);
-      }
-      for (const d of dupDropped) {
-        failed.push({ block: d.block, kind: 'duplicate-state', resp: `stateId ${d.stateId} 已归 ${d.owner}` });
-      }
-    }
-    if (sameBlockDropped.length > 0) {
-      process.stderr.write(`  去重：块内重复 ${sameBlockDropped.length} 条（同一方块同一 stateId）
-`);
-      for (const d of sameBlockDropped.slice(0, 4)) {
-        process.stderr.write(`    ${d.block} 有 ${d.stateId} 列了不止一次
-`);
-      }
-      for (const d of sameBlockDropped) {
-        failed.push({ block: d.block, kind: 'duplicate-in-block', resp: `stateId ${d.stateId} 在同一方块内重复` });
-      }
-    }
+    const deduped = dedupeStateIds(blocks, Object.keys(manifest.blocks ?? {}));
+    blocks = deduped.blocks;
+    ids.blocks = blocks;
+    const report = dedupReport(deduped.dupDropped, deduped.sameBlockDropped);
+    for (const line of report.lines) process.stderr.write(`  ${line}\n`);
+    failed.push(...report.failed);
   }
 
   // ---- 自检：量出来的 id 到底对不对 ----
@@ -466,29 +414,17 @@ export default async function cmdCalibrate(args, io) {
 }
 
 /**
- * 真实放置校准。
- *
- * 挑"有多个状态但全读到同一个 stateId"的方块——那正是 `/setblock` 改不动属性的那批
- * （煎锅的 support、砧板朝向、锅的支撑）。给玩家 → 拿在手 → 潜行 → 放置，读回真实
- * 默认态的 stateId。
+ * 真实放置补测：给玩家 → 拿在手 → 潜行 → 放置，读回真实默认态的 stateId。
+ * 嫌疑名单由 computeSuspects 挑（/setblock 设不动属性的那批）。
  */
-async function calibrateByPlacement({ bot, cmd, ids, manifest, username, bx, by, bz, io }) {
+async function calibrateByPlacement({ bot, cmd, ids, manifest, username, bx, by, bz }) {
   // 平台：测完清掉
   await cmd(`fill ${bx - 4} ${by - 1} ${bz - 4} ${bx + 4} ${by - 1} ${bz + 4} minecraft:stone`);
   await cmd(`fill ${bx - 4} ${by} ${bz - 4} ${bx + 4} ${by + 3} ${bz + 4} minecraft:air`);
   await sleep(500);
 
-  // 判据：**量出来的不同 stateId 比声明的状态数少** —— 那就是 `/setblock` 设不动属性。
-  //
-  // 不能写成"多个状态量成同一个号"：去重会先把块内重复收掉，那个条件永远不成立（踩过）。
-  // 这个判据在去重前后都成立，而且能抓住"12 个状态只量到 8 个"这种半塌的情况。
-  const suspects = Object.entries(ids.blocks ?? {})
-    .filter(([name, list]) => {
-      const declared = (manifest.blocks?.[name]?.states ?? []).length;
-      if (declared <= 1) return false;
-      const distinct = new Set(list.map((s) => s.stateId)).size;
-      return distinct < declared;
-    });
+  // 判据在 computeSuspects：量出来的不同 stateId 比声明的状态数少。
+  const suspects = computeSuspects(ids.blocks, manifest.blocks);
   if (suspects.length === 0) {
     console.error('  没有需要真实放置补测的方块');
     return;
@@ -501,10 +437,18 @@ async function calibrateByPlacement({ bot, cmd, ids, manifest, username, bx, by,
   let confirmed = 0;   // 放下去了，id 与已量到的一致
   let added = 0;       // 放下去了，量到新 id
   let failedPlace = 0; // 没放下去
-  for (const [name] of suspects) {
+  let skipped = 0;     // give 不出或拿不到（作物方块没有 item 形式），放置够不着
+  for (const { name } of suspects) {
     await cmd(`clear ${username}`);
     const resp = await cmd(`give ${username} ${name} 1`);
-    if (FAIL_RE.test(resp)) continue;
+    if (FAIL_RE.test(resp)) {
+      // 跳过也必须计数并入账：结果行的四个数要能对上 suspects 总数，
+      // 否则"补测 7 个、结果只有 6"就是对不上的账（实测 tomatoes 没有物品形式）
+      skipped++;
+      done++;
+      process.stderr.write(`    give 不出物品，跳过：${name}（${resp.trim().slice(0, 80)}）\n`);
+      continue;
+    }
     // **按数字 id 找，不按名字。** 这个 bot 没注入注册表，模组物品在客户端眼里
     // 名字一律是 `unknown`，`i.name === name` 永远不成立 —— 之前就是这里一直
     // `continue`，放置补测跑了个寂寞（踩过）。
@@ -520,6 +464,8 @@ async function calibrateByPlacement({ bot, cmd, ids, manifest, username, bx, by,
     if (!item) {
       process.stderr.write(`    拿不到物品：${name}（ids.items 里${typeof itemType === 'number' ? `是 ${itemType}` : '没有' }，背包 ${bot.inventory.items().length} 件）
 `);
+      skipped++;
+      done++;
       continue;
     }
 
@@ -567,7 +513,5 @@ async function calibrateByPlacement({ bot, cmd, ids, manifest, username, bx, by,
   }
   await cmd(`fill ${bx - 4} ${by} ${bz - 4} ${bx + 4} ${by + 3} ${bz + 4} minecraft:air`);
   // 让结果看得见：confirmed 不写文件（setblock 已经量到了那个 id），added 才会出现在 ids 里
-  console.error(`  放置补测结果：确认 ${confirmed} / 新增 ${added} / 没放成 ${failedPlace}`);
-  void manifest;
-  void io;
+  console.error(`  放置补测结果：确认 ${confirmed} / 新增 ${added} / 没放成 ${failedPlace} / 没测成 ${skipped}（嫌疑共 ${suspects.length}）`);
 }
