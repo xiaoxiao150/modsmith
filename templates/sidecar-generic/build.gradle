@@ -1,9 +1,10 @@
 plugins {
-    id 'fabric-loom' version '${loom_version}'
+    // plugins 块只认字面量；版本占位由 modsmith 按 GRADLE_VERSIONS 表文本替换（__LOOM__ 等）
+    id 'fabric-loom' version '__LOOM__'
     id 'java'
 }
 
-version = project.version
+version = '__VERSION__'
 group = 'dev.modsmith'
 base {
     archivesName = 'modsmith-sidecar'
@@ -14,17 +15,17 @@ repositories {
 }
 
 dependencies {
-    minecraft "com.mojang:minecraft:${minecraft_version}"
-    mappings "net.fabricmc:yarn:${minecraft_version}+build.${yarn_build}:v2"
-    modImplementation "net.fabricmc:fabric-loader:${loader_version}"
-    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
+    minecraft "com.mojang:minecraft:__MCVERSION__"
+    mappings "net.fabricmc:yarn:__MCVERSION__+build.__YARNBUILD__:v2"
+    modImplementation "net.fabricmc:fabric-loader:__LOADER__"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:__FABRICAPI__"
 }
 
 processResources {
     inputs.property "version", project.version
-    inputs.property "minecraft_version", project.minecraft_version
+    inputs.property "minecraft_version", '__MCVERSION__'
     filesMatching("fabric.mod.json") {
-        expand "version": project.version, "minecraft_version": project.minecraft_version
+        expand "version": project.version, "minecraft_version": '__MCVERSION__'
     }
 }
 

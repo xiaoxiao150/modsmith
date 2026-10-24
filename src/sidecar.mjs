@@ -113,6 +113,27 @@ export function stationConfigOf(manifest, stations, opLevel) {
 }
 
 /**
+ * 命令写回决策（纯函数）：
+ *   - 已有 command 且与本次生成的不同 → 默认保留（多半是人工侧车在跑；覆盖会指向不存在的命令）
+ *   - --write-command 显式要求 → 一律写
+ *   - 其余 → 写
+ * @returns {{writable: Array, kept: Array<{id: string, existing: string}>}}
+ */
+export function planCommandWrites(pending, explicitWrite) {
+  const writable = [];
+  const kept = [];
+  for (const x of pending) {
+    const existing = x.station.command;
+    if (!explicitWrite && typeof existing === 'string' && existing && existing !== x.command) {
+      kept.push({ id: x.station.id, existing });
+    } else {
+      writable.push(x);
+    }
+  }
+  return { writable, kept };
+}
+
+/**
  * @param {Record<string, any>} args
  * @param {{fatal: (m: string) => never}} io
  */
@@ -161,14 +182,19 @@ export default async function cmdSidecar(args, io) {
     } else {
       const workDir = join(outRoot, '.build');
       cpSync(TEMPLATE_DIR, workDir, { recursive: true, force: true });
-      const props = readFileSync(join(workDir, 'gradle.properties'), 'utf8')
-        .replace(/minecraft_version=.*/, `minecraft_version=${mcVersion}`)
-        .replace(/yarn_build=.*/, `yarn_build=${gradleRow.yarnBuild}`)
-        .replace(/loader_version=.*/, `loader_version=${gradleRow.loader}`)
-        .replace(/fabric_api_version=.*/, `fabric_api_version=${gradleRow.fabricApi}`)
-        .replace(/loom_version=.*/, `loom_version=${gradleRow.loom}`);
-      writeFileSync(join(workDir, 'gradle.properties'),
-        props + `version=${SIDECAR_MOD_VERSION}\n`, 'utf8');
+      // plugins 块只认字面量（属性插值不可用），版本按 GRADLE_VERSIONS 表文本替换
+      const subs = {
+        __LOOM__: gradleRow.loom,
+        __YARNBUILD__: gradleRow.yarnBuild,
+        __LOADER__: gradleRow.loader,
+        __FABRICAPI__: gradleRow.fabricApi,
+        __MCVERSION__: mcVersion,
+        __VERSION__: SIDECAR_MOD_VERSION,
+      };
+      const gradleFile = join(workDir, 'build.gradle');
+      writeFileSync(gradleFile,
+        Object.entries(subs).reduce((s2, [k, v]) => s2.split(k).join(v), readFileSync(gradleFile, 'utf8')),
+        'utf8');
       console.error(`编译通用侧车（${workDir}）...`);
       const t0 = Date.now();
       const res = await runGradle(gradle, workDir);
@@ -196,6 +222,9 @@ export default async function cmdSidecar(args, io) {
   //
   // 清单里的 command 会被机器人直接拿去 `/xxx cook ...`。指向一个没编译成功、更没装上的
   // 命令，表现是"发出去了但没人应答"，几秒后才超时 —— 比直接报错难查得多。
+  //
+  // 已有 command 的站点**默认不覆盖**：那多半是人在跑的手工侧车（fdchef 的 /pot 就是），
+  // 覆盖它等于把机器人指向一条生产服上不存在的命令。要换就明写 --write-command。
   const pending = config.map((st) => ({ station: targets.find((t) => t.id === st.id), command: `/${st.command} cook {recipe}`, recipeType: st.recipeType }));
   const explicitWrite = args['write-command'] === true;
   if (!built) {
@@ -208,14 +237,21 @@ export default async function cmdSidecar(args, io) {
       console.error('  ! --write-command：照生成结果写了，**没有经过编译验证**。');
     }
   } else {
-    for (const x of pending) {
+    const { writable, kept } = planCommandWrites(pending, explicitWrite);
+    for (const x of writable) {
       x.station.command = x.command;
       x.station.recipeType = x.recipeType;
     }
-    const { writeManifest } = await import('./manifest-io.mjs');
-    writeManifest(manifestPath, manifest);
-    console.error(`\n已把 ${pending.length} 条命令写回 ${manifestPath}`);
-    for (const x of pending) console.error(`  ${x.station.id} → ${x.command}`);
+    if (writable.length > 0) {
+      const { writeManifest } = await import('./manifest-io.mjs');
+      writeManifest(manifestPath, manifest);
+      console.error(`\n已把 ${writable.length} 条命令写回 ${manifestPath}`);
+      for (const x of writable) console.error(`  ${x.station.id} → ${x.command}`);
+    }
+    for (const k of kept) {
+      console.error(`  ${k.id} 已有命令 ${k.existing}，不覆盖（多半是人工侧车在跑；要换用 --write-command）`);
+    }
+    if (writable.length === 0) console.error('\n没有需要写回的命令：都有现成的了。');
   }
 
   console.log(outRoot);

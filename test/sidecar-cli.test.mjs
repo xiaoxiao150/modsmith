@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { stationConfigOf } from '../src/sidecar.mjs';
+import { stationConfigOf, planCommandWrites } from '../src/sidecar.mjs';
 
 const CLI = fileURLToPath(new URL('../bin/modsmith.mjs', import.meta.url));
 const FIXTURE = fileURLToPath(new URL('./fixtures/tiny-mod.jar', import.meta.url));
@@ -83,6 +83,24 @@ test('stationConfigOf：声明了 cookTime/heatTag 的站点如实进配置，�
   assert.equal(cfg[1].cookTime, 200);
   assert.equal(cfg[1].heatTag, undefined);
   assert.equal('heatTag' in cfg[1], false, '没声明就不该带 heatTag 键');
+});
+
+test('planCommandWrites：已有 command 默认保留（人工侧车优先），--write-command 才覆盖', () => {
+  const pending = [
+    // fdchef 场景：人工侧车 /pot 在跑，生成的是 /cooking_pot
+    { station: { id: 'pot', command: '/pot cook {recipe}' }, command: '/cooking_pot cook {recipe}', recipeType: 'x:cooking' },
+    // 没命令的站点：该写
+    { station: { id: 'pan' }, command: '/pan cook {recipe}', recipeType: 'x:cooking' },
+    // 命令与生成结果一致：无需保留
+    { station: { id: 'mill', command: '/mill cook {recipe}' }, command: '/mill cook {recipe}', recipeType: 'x:cooking' },
+  ];
+  const plain = planCommandWrites(pending, false);
+  assert.deepEqual(plain.kept, [{ id: 'pot', existing: '/pot cook {recipe}' }]);
+  assert.deepEqual(plain.writable.map((x) => x.station.id), ['pan', 'mill']);
+
+  const forced = planCommandWrites(pending, true);
+  assert.deepEqual(forced.kept, []);
+  assert.deepEqual(forced.writable.map((x) => x.station.id), ['pot', 'pan', 'mill']);
 });
 
 test('sidecar --no-build + --write-command 才写，并警告没验过', () => {
