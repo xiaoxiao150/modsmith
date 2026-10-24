@@ -3,8 +3,15 @@
 把 Fabric 模组 jar 变成**任何 mineflayer 机器人能用的语义清单**。
 
 Minecraft 机器人是原版协议客户端。它看不见模组方块、拿不到模组配方、也开不出模组界面——
-因为 1.21 起方块和物品是**静态注册表**，服务端从不下发，模组追加到哪个数字 id 取决于加载
-顺序。`modsmith` 把这一切补齐，并尽量让"接一个新 mod"变成几条命令。
+因为 1.21 起方块和物品是**静态注册表**，服务端从不下发，模组追加到哪个数字 id 取决于
+加载顺序。`modsmith` 把这一切补齐，并尽量让"接一个新 mod"变成几条命令。
+
+## 前置条件
+
+calibrate / probe / verify 是在**你自己的服务器上动手**：`forceload`、`setblock`、
+`give`、`tp`、`clear` 每一条都要 OP，RCON 必须开着。它们没法指向别人的服务器——
+没有 OP 就是每条命令静默失败。支持范围也只有 Fabric（Forge/NeoForge 的 FML 握手
+是另一套协议，投入产出比差）。
 
 ## 四步
 
@@ -30,14 +37,17 @@ modsmith sidecar  <manifest.json>     给"服务端不开菜单"的站点生成�
 modsmith inspect ./mods/SomeMod.jar --out ./out
 
 # 2) 装好这个 mod 的服务器起来之后，量数字 id
+#    --server-mods 把服务器 mods 目录的指纹记进 ids；日后对不上会拒绝使用
 modsmith calibrate ./out/somemod-1.21.1-1.0.0.json \
-  --port 25565 --rcon-password yourpw
+  --port 25565 --rcon-password yourpw --server-mods ./mods
 
 # 3) 实测容器（名字像容器不等于能用——`*_crate` 名字最像，实测打不开）
-modsmith probe ./out/somemod-1.21.1-1.0.0.json --pack somemod-1.21.1-1.0.0
+modsmith probe ./out/somemod-1.21.1-1.0.0.json --pack somemod-1.21.1-1.0.0 \
+  --server-mods ./mods
 
 # 4) 冒烟
-modsmith verify ./out/somemod-1.21.1-1.0.0.json --pack somemod-1.21.1-1.0.0
+modsmith verify ./out/somemod-1.21.1-1.0.0.json --pack somemod-1.21.1-1.0.0 \
+  --server-mods ./mods
 ```
 
 ## 输出
@@ -66,6 +76,11 @@ modsmith verify ./out/somemod-1.21.1-1.0.0.json --pack somemod-1.21.1-1.0.0
 - 名字对不上 → 删掉这个方块的 id（**错了比未知更糟**）
 - 作物类对不上 → 只标记 `kind: 'environmental'`，不删（它们要真种，setblock 摆不住）
 - 注入后同一个 stateId 被多个方块认领 → 先到先得，后来的丢掉
+
+自检防的是**量错**；还有一扇门是**用错**：id 随 jar 组合整体位移，服务器加一个 mod、
+换一套加载顺序，上次量好的 ids 就全体过期，而且没有任何报错。所以 calibrate 会把
+服务器 mods 目录的指纹（`--server-mods`）记进 ids，probe/verify 加载时对不上就拒绝；
+`--resume` 复用旧数据前也先抽 3 个方块真摆一遍。
 
 ## 为什么有 `learn` 这一步
 
