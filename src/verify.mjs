@@ -9,51 +9,15 @@
  * 这个命令**只读**：除了临时摆方块、/give 再 /clear，不改世界也不装东西。
  */
 import mineflayer from 'mineflayer';
-import net from 'node:net';
 import { Vec3 } from 'vec3';
 import { readManifest, readIds } from './manifest-io.mjs';
 import { installModRegistry, installMineflayerFixes, loadModPack, setModsDir } from './cortico-bridge.mjs';
+import { sampleOf } from './calibrate-core.mjs';
+import { checkServerMods } from './server-fingerprint.mjs';
+import { makeRcon } from './rcon.mjs';
 import { fallbackTag } from './tag-fallback.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-function makeRcon(host, port, password) {
-  return new Promise((resolve, reject) => {
-    const s = net.createConnection(port, host);
-    let buf = Buffer.alloc(0);
-    let id = 0;
-    const waiters = [];
-    const send = (type, body) => {
-      id += 1;
-      const h = Buffer.alloc(8);
-      h.writeInt32LE(id, 0);
-      h.writeInt32LE(type, 4);
-      const payload = Buffer.concat([h, Buffer.from(body, 'utf8'), Buffer.alloc(2)]);
-      const len = Buffer.alloc(4);
-      len.writeInt32LE(payload.length, 0);
-      s.write(Buffer.concat([len, payload]));
-    };
-    s.on('data', (chunk) => {
-      buf = Buffer.concat([buf, chunk]);
-      while (buf.length >= 4) {
-        const len = buf.readInt32LE(0);
-        if (buf.length < 4 + len) break;
-        const body = buf.subarray(4, 4 + len);
-        buf = buf.subarray(4 + len);
-        waiters.shift()?.(body.subarray(8, body.length - 2).toString('utf8'));
-      }
-    });
-    s.on('error', reject);
-    s.on('close', () => reject(new Error('RCON 连接断了')));
-    s.on('connect', () => {
-      send(3, password);
-      waiters.push(() => resolve((cmd) => new Promise((res) => {
-        send(2, cmd);
-        waiters.push(res);
-      })));
-    });
-  });
-}
 
 export default async function cmdVerify(args, io) {
   const manifestPath = args._[1];
@@ -71,6 +35,12 @@ export default async function cmdVerify(args, io) {
   if (idItems === 0) {
     io.fatal(`${idsPath} 里没有物品数据（只跑过 --blocks-only？）——先跑一次完整 calibrate`);
   }
+  const verdict = checkServerMods(
+    ids.serverMods,
+    typeof args['server-mods'] === 'string' ? args['server-mods'] : undefined,
+  );
+  for (const line of verdict.lines) console.error(`  ${line}`);
+  if (verdict.fatal) io.fatal('ids 与这台服务器对不上（见上）——过期的数据不做冒烟，直接拒绝');
 
   const host = String(args.host ?? '127.0.0.1');
   const port = Number(args.port ?? 25565);
@@ -105,7 +75,7 @@ export default async function cmdVerify(args, io) {
 
   // ---- 1) 方块认得 ----
   const spot = new Vec3(bx + 1, by, bz);
-  const sampleBlocks = pickSample(Object.keys(manifest.blocks ?? {}), 6);
+  const sampleBlocks = sampleOf(Object.keys(manifest.blocks ?? {}), 6);
   for (const name of sampleBlocks) {
     const states = manifest.blocks[name].states ?? [{}];
     const st = states[0] ?? {};
@@ -136,7 +106,7 @@ export default async function cmdVerify(args, io) {
   };
   bot._client.on('window_items', onWindowItems);
 
-  const sampleItems = pickSample(Object.keys(manifest.items ?? {}), 6);
+  const sampleItems = sampleOf(Object.keys(manifest.items ?? {}), 6);
   for (const name of sampleItems) {
     await cmd(`clear ${username}`);
     invState = [];
@@ -202,14 +172,6 @@ export default async function cmdVerify(args, io) {
   }
   if (failed.length > 0) process.exitCode = 1;
   console.log(JSON.stringify({ mod: manifest.mod, failed: failed.length, results }, null, 2));
-}
-
-/** 均匀抽几个样本（首尾都覆盖到）。 */
-function pickSample(list, n) {
-  if (list.length <= n) return list;
-  const out = [];
-  for (let i = 0; i < n; i++) out.push(list[Math.floor((i * (list.length - 1)) / (n - 1))]);
-  return [...new Set(out)];
 }
 
 /**

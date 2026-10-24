@@ -2,7 +2,15 @@
 //   node --test test/
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { computeSuspects, dedupeStateIds, dedupReport } from '../src/calibrate-core.mjs';
+import { computeSuspects, dedupeStateIds, dedupReport, sampleOf } from '../src/calibrate-core.mjs';
+
+// ---------- sampleOf ----------
+
+test('sampleOf：均匀抽样且首尾覆盖，不比 n 长就原样返回', () => {
+  assert.deepEqual(sampleOf(['a', 'b', 'c', 'd', 'e', 'f', 'g'], 3), ['a', 'd', 'g']);
+  assert.deepEqual(sampleOf(['a', 'b'], 3), ['a', 'b']);
+  assert.deepEqual(sampleOf([], 3), []);
+});
 
 // ---------- computeSuspects ----------
 

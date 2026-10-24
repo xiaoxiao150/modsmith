@@ -28,6 +28,7 @@ const USAGE = `modsmith ${VERSION} — 把 Fabric mod jar 变成机器人能用�
 
       --pack <name>          mods/ 下的文件名（不带 .json）
       --mods-dir <dir>       manifest/ids 目录，默认 ./mods
+      --server-mods <dir>    服务器 mods 目录：ids 指纹对不上就拒绝跑
       --timeout <ms>         每次右键等多久，默认 3000
       --write-manifest       把实测结果写回清单（容器表以实测为准）
       其余参数与 calibrate 相同。
@@ -44,6 +45,8 @@ const USAGE = `modsmith ${VERSION} — 把 Fabric mod jar 变成机器人能用�
       --x/--y/--z <n>        测试用的空地中心，默认 400/200/400
       --place               额外做一遍"真实放置"校准（给 setblock 改不动属性的方块）
       --resume               接着上次量：已有结果里量全的方块跳过，适合断点续跑
+      --server-mods <dir>    服务器 mods 目录：把指纹记进 ids；加载时对不上就拒绝
+                             （不提指纹的那次量无法发现"换过服务器/换过 jar"）
       --blocks-only         只量方块（配合 --ids 复用已有的物品结果）
       --items-only          只量物品（复用 --ids 里已有的方块结果，省时间）
       --no-selfcheck         跳过量完后的自检（不推荐：错 id 会被写进清单）
@@ -54,6 +57,7 @@ const USAGE = `modsmith ${VERSION} — 把 Fabric mod jar 变成机器人能用�
 
       --pack <name>          mods/ 下的文件名
       --ids <file>           ids.json（默认与 manifest 同名加 -ids）
+      --server-mods <dir>    服务器 mods 目录：ids 指纹对不上就拒绝跑
       --mods-dir <dir>       manifest/ids 目录，默认 ./mods
       其余参数与 calibrate 相同。
 

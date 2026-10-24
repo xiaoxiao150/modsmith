@@ -11,52 +11,14 @@
  * 依赖：服务器已装好该 mod、开了 RCON、bot 能离线登录且有 OP（要 forceload/setblock/tp）。
  */
 import mineflayer from 'mineflayer';
-import net from 'node:net';
 import { Vec3 } from 'vec3';
 import { readManifest } from './manifest-io.mjs';
 import { installModRegistry, installMineflayerFixes, loadModPack, setModsDir } from './cortico-bridge.mjs';
 import { applyProbe, stationMatches } from './manifest-probe.mjs';
+import { checkServerMods } from './server-fingerprint.mjs';
+import { makeRcon } from './rcon.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-/** 最小 RCON 客户端（认证 + 单条命令）。 */
-function makeRcon(host, port, password) {
-  return new Promise((resolve, reject) => {
-    const s = net.createConnection(port, host);
-    let buf = Buffer.alloc(0);
-    let id = 0;
-    const waiters = [];
-    const send = (type, body) => {
-      id += 1;
-      const h = Buffer.alloc(8);
-      h.writeInt32LE(id, 0);
-      h.writeInt32LE(type, 4);
-      const payload = Buffer.concat([h, Buffer.from(body, 'utf8'), Buffer.alloc(2)]);
-      const len = Buffer.alloc(4);
-      len.writeInt32LE(payload.length, 0);
-      s.write(Buffer.concat([len, payload]));
-    };
-    s.on('data', (chunk) => {
-      buf = Buffer.concat([buf, chunk]);
-      while (buf.length >= 4) {
-        const len = buf.readInt32LE(0);
-        if (buf.length < 4 + len) break;
-        const body = buf.subarray(4, 4 + len);
-        buf = buf.subarray(4 + len);
-        waiters.shift()?.(body.subarray(8, body.length - 2).toString('utf8'));
-      }
-    });
-    s.on('error', reject);
-    s.on('close', () => reject(new Error('RCON 连接断了')));
-    s.on('connect', () => {
-      send(3, password);
-      waiters.push(() => resolve((cmd) => new Promise((res) => {
-        send(2, cmd);
-        waiters.push(res);
-      })));
-    });
-  });
-}
 
 /**
  * 右键一个方块，看它开不开窗。
@@ -219,6 +181,13 @@ export default async function cmdProbe(args, io) {
   if (typeof args['mods-dir'] === 'string') setModsDir(args['mods-dir']);
   const pack = loadModPack(packName);
   if (!pack) io.fatal(`读不到包 ${packName}（需要 ${packName}.json 与 ${packName}-ids.json）`);
+
+  const verdict = checkServerMods(
+    pack.ids?.serverMods,
+    typeof args['server-mods'] === 'string' ? args['server-mods'] : undefined,
+  );
+  for (const line of verdict.lines) console.error(`  ${line}`);
+  if (verdict.fatal) io.fatal('ids 与这台服务器对不上（见上）——过期的数据测出来的站点结论也是错的');
 
   const session = await openProbeSession({
     host: args.host, port: args.port, rconPort: args['rcon-port'],

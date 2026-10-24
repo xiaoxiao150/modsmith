@@ -103,3 +103,11 @@ export function dedupReport(dupDropped, sameBlockDropped) {
   }
   return { lines, failed };
 }
+
+/** 均匀抽 n 个（首尾都覆盖到）；名单不比 n 长就原样返回。 */
+export function sampleOf(list, n) {
+  if (list.length <= n) return [...list];
+  const out = new Set();
+  for (let i = 0; i < n; i++) out.add(list[Math.floor((i * (list.length - 1)) / (n - 1))]);
+  return [...out];
+}

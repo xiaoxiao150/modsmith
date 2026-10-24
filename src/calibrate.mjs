@@ -14,52 +14,15 @@
  *   b) 服务端方块更新常常晚一拍，单次读可能拿到上一格残留。对策：连读两次一致才认。
  */
 import mineflayer from 'mineflayer';
-import net from 'node:net';
 import { Vec3 } from 'vec3';
 import { readManifest } from './manifest-io.mjs';
 import { writeIds } from './manifest-io.mjs';
-import { computeSuspects, dedupeStateIds, dedupReport } from './calibrate-core.mjs';
+import { computeSuspects, dedupeStateIds, dedupReport, sampleOf } from './calibrate-core.mjs';
+import { checkServerMods, fingerprintDir } from './server-fingerprint.mjs';
 import { installMineflayerFixes, installModRegistry, setModsDir } from './cortico-bridge.mjs';
+import { makeRcon } from './rcon.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
-function makeRcon(host, port, password) {
-  return new Promise((resolve, reject) => {
-    const s = net.createConnection(port, host);
-    let buf = Buffer.alloc(0);
-    let id = 0;
-    const waiters = [];
-    const send = (type, body) => {
-      id += 1;
-      const h = Buffer.alloc(8);
-      h.writeInt32LE(id, 0);
-      h.writeInt32LE(type, 4);
-      const payload = Buffer.concat([h, Buffer.from(body, 'utf8'), Buffer.alloc(2)]);
-      const len = Buffer.alloc(4);
-      len.writeInt32LE(payload.length, 0);
-      s.write(Buffer.concat([len, payload]));
-    };
-    s.on('data', (chunk) => {
-      buf = Buffer.concat([buf, chunk]);
-      while (buf.length >= 4) {
-        const len = buf.readInt32LE(0);
-        if (buf.length < 4 + len) break;
-        const body = buf.subarray(4, 4 + len);
-        buf = buf.subarray(4 + len);
-        waiters.shift()?.(body.subarray(8, body.length - 2).toString('utf8'));
-      }
-    });
-    s.on('error', reject);
-    s.on('close', () => reject(new Error('RCON 连接断了')));
-    s.on('connect', () => {
-      send(3, password);
-      waiters.push(() => resolve((cmd) => new Promise((res) => {
-        send(2, cmd);
-        waiters.push(res);
-      })));
-    });
-  });
-}
 
 const FAIL_RE = /failed|unknown|error|invalid|not loaded|no such/i;
 
@@ -91,6 +54,30 @@ export default async function cmdCalibrate(args, io) {
   const bz = Number(args.z ?? 400);
   const outPath = String(args.out ?? args.ids ?? manifestPath.replace(/\.json$/, '-ids.json'));
   if (typeof args['mods-dir'] === 'string') setModsDir(args['mods-dir']);
+
+  // ---- ids 过期防呆（连接前，还没动服务器状态）----
+  //
+  // 1.21 的 id 取决于加载顺序：换了服务器、换了 jar，整套 id 静默位移——自检防的是
+  // 量错，防不了拿旧 ids 去量新服务器。两道闸：
+  //   a) 指纹：--server-mods 给服务器 mods 目录，与 ids 里记录的比，对不上就拒绝
+  //   b) 预检：--resume/--items-only 复用旧方块数据时，抽 3 个真摆一遍（spawn 之后）
+  const serverModsDir = typeof args['server-mods'] === 'string' ? args['server-mods'] : undefined;
+  const prev = readManifest(outPath);
+  if (prev) {
+    const verdict = checkServerMods(prev.serverMods, serverModsDir);
+    for (const line of verdict.lines) process.stderr.write(`  ${line}\n`);
+    if (verdict.fatal) io.fatal('ids 与这台服务器对不上（见上），拒绝续用');
+  }
+  let serverMods;
+  if (serverModsDir) {
+    try {
+      serverMods = fingerprintDir(serverModsDir);
+    } catch (err) {
+      io.fatal(`--server-mods ${serverModsDir} 读不了：${err.message ?? err}`);
+    }
+  } else {
+    process.stderr.write('  ! 没给 --server-mods：ids 不带服务器指纹，换服务器/换 jar 后发现不了\n');
+  }
 
   const cmd = await makeRcon(host, rconPort, rconPassword);
   const bot = mineflayer.createBot({ host, port, username, version: mcVersion, auth: 'offline' });
@@ -143,7 +130,6 @@ export default async function cmdCalibrate(args, io) {
   const entries = Object.entries(manifest.blocks ?? {});
   const blocksOnly = args['blocks-only'] === true;
   const itemsOnly = args['items-only'] === true;
-  const prev = readManifest(String(args.ids ?? outPath));
   if (prev?.blocks && (itemsOnly || args.resume === true)) {
     Object.assign(blocks, prev.blocks);
     console.error(`  复用上一份 ${Object.keys(prev.blocks).length} 个方块的实测结果（${itemsOnly ? '--items-only' : '--resume'}）`);
@@ -163,6 +149,42 @@ export default async function cmdCalibrate(args, io) {
   );
   if (completeBlocks.size > 0) {
     console.error(`  ${completeBlocks.size} 个方块已经量全，跳过`);
+  }
+
+  // ---- 预检：复用的方块数据是否还认得这台服务器 ----
+  //
+  // --resume/--items-only 会直接复用上一份方块实测。ids 静默过期（换服务器、换 jar）
+  // 时，这批 id 注进注册表就是一套错位映射——把自检防住的错名从"复用"这侧放进来。
+  // 注入后抽 3 个方块真摆一遍：名字对不上就中止（抛错走 finally 清理），宁可全量重跑。
+  if ((itemsOnly || args.resume === true) && prev?.blocks && Object.keys(prev.blocks).length > 0) {
+    process.stderr.write('  预检：复用的方块实测先抽 3 个真摆一遍，对得上才继续\n');
+    const physicsWas = bot.physicsEnabled;
+    bot.physicsEnabled = false;
+    let injected = true;
+    try {
+      installModRegistry(bot, { manifest, ids: { mod: prev.mod, version: prev.version, blocks: prev.blocks, items: prev.items ?? {} } });
+    } catch (err) {
+      injected = false;
+      process.stderr.write(`  预检跳过（注册表注入失败）：${err.message}\n`);
+    }
+    if (injected) {
+      const mismatches = [];
+      for (const name of sampleOf(Object.keys(prev.blocks), 3)) {
+        const soil = cropNames.has(name) ? 'minecraft:farmland' : 'minecraft:stone';
+        await cmd(`setblock ${bx} ${by - 1} ${bz} ${soil}`);
+        await cmd(`setblock ${bx} ${by} ${bz} ${name}`);
+        await sleep(260);
+        const seen = bot.blockAt(at)?.name ?? '';
+        if (seen !== name) mismatches.push(`${name} 读回来是 ${seen || '(空)'}`);
+      }
+      await cmd(`setblock ${bx} ${by} ${bz} minecraft:air`);
+      await cmd(`setblock ${bx} ${by - 1} ${bz} minecraft:stone`);
+      bot.physicsEnabled = physicsWas;
+      if (mismatches.length > 0) {
+        // 抛错而不是 io.fatal：让 finally 里的清理跑掉，别把 forceload 留在服务器上
+        throw new Error(`复用的 ids 对不上这台服务器：${mismatches.join('；')}。ids 已过期或来自别的 jar 组合，删掉重跑全量 calibrate`);
+      }
+    }
   }
 
   const writePartial = () => {
@@ -296,6 +318,7 @@ export default async function cmdCalibrate(args, io) {
     blocks,
     items,
     failed,
+    ...(serverMods ? { serverMods } : {}),
   };
 
   if (args.place) {
