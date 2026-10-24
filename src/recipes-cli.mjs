@@ -11,7 +11,7 @@
  * 守门（错名比未知更糟）：解析必须整包对齐（残包拒绝）；物品名翻不回的条目跳过并计数；
  * 成功率 < 阈值（默认 95%）整份不写。
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseDeclareRecipes } from './recipes.mjs';
 import { vanillaItemTable, joinRecipes } from './recipes-join.mjs';
@@ -64,7 +64,13 @@ export default async function cmdRecipes(args, io) {
   console.error(`  翻译成功 ${entries.length}/${parsed.recipes.length}（${(ratio * 100).toFixed(1)}%）：可消费 ${entries.length - unsupported} 条，unsupported ${unsupported} 条（SimpleRecipeSerializer，协议里就没有原料）`);
   for (const name of unresolved.slice(0, 6)) console.error(`    翻不出物品名：${name}`);
   if (ratio < threshold) {
-    io.fatal(`成功率 ${(ratio * 100).toFixed(1)}% 低于阈值 ${(threshold * 100).toFixed(0)}%：manifest 保持原样（错名比未知更糟）。多数翻不出 = ids 太旧或 vanilla 表缺这个版本`);
+    // 不写清单是对的（半真值比没有更糟），但"缺了哪几条"必须可查——否则 1594 掉成 900
+    // 只是一句日志，没人知道丢了什么。
+    const reportPath = rawPath.replace(/\.raw\.bin$/, '.unresolved.json');
+    writeFileSync(reportPath, JSON.stringify({ parsed: parsed.recipes.length, joined: entries.length, unresolved }, null, 2) + '\n');
+    io.fatal(`成功率 ${(ratio * 100).toFixed(1)}% 低于阈值 ${(threshold * 100).toFixed(0)}%：manifest 保持原样（错名比未知更糟）。`
+      + `\n  缺的 ${unresolved.length} 条已写到 ${reportPath}（前 10 条：${unresolved.slice(0, 10).join(', ')}）`
+      + `\n  多数翻不出 = ids 太旧或 vanilla 表缺这个版本`);
   }
 
   const old = manifest.recipes ?? [];
