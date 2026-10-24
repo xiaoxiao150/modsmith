@@ -80,8 +80,7 @@ export default async function cmdCalibrate(args, io) {
   }
 
   const cmd = await makeRcon(host, rconPort, rconPassword);
-  const bot = mineflayer.createBot({ host, port, username, version: mcVersion, auth: 'offline' });
-  installMineflayerFixes(bot);
+  let bot = null;
 
   // 清理必须无条件执行：中途抛错/Ctrl-C 都要把 forceload 和测试平台收掉，
   // 否则下次进来先撞一堆残留的常加载区块
@@ -91,7 +90,7 @@ export default async function cmdCalibrate(args, io) {
     cleaned = true;
     try { await cmd(`setblock ${bx} ${by} ${bz} minecraft:air`); } catch { /* */ }
     try { await cmd(`forceload remove ${bx - 16} ${bz - 16} ${bx + 16} ${bz + 16}`); } catch { /* */ }
-    try { bot.quit(); } catch { /* */ }
+    try { bot?.quit(); } catch { /* */ }
   };
 
   try {
@@ -100,18 +99,8 @@ export default async function cmdCalibrate(args, io) {
   // 每次开跑都重铺一次（上一轮的清理会把这里清成空气）。
   await cmd(`fill ${bx - 1} ${by - 1} ${bz - 1} ${bx + 1} ${by - 1} ${bz + 1} minecraft:stone`);
   await cmd(`fill ${bx - 1} ${by} ${bz - 1} ${bx + 1} ${by + 3} ${bz + 1} minecraft:air`);
-  await cmd(`tp ${username} ${bx + 0.5} ${by} ${bz + 0.5}`);
-  await new Promise((res, rej) => { bot.once('spawn', res); bot.once('error', rej); });
-  await sleep(1200);
-  await cmd(`tp ${username} ${bx + 0.5} ${by} ${bz + 0.5}`);
 
   const at = new Vec3(bx, by, bz);
-  const read = () => {
-    const b = bot.blockAt(at);
-    return b && typeof b.stateId === 'number' ? b : null;
-  };
-  // 等第一列真到客户端，否则整轮全是 null
-  await waitFor(read, () => true, 10000);
 
   let blocks = {};
   const items = {};
@@ -155,37 +144,53 @@ export default async function cmdCalibrate(args, io) {
   //
   // --resume/--items-only 会直接复用上一份方块实测。ids 静默过期（换服务器、换 jar）
   // 时，这批 id 注进注册表就是一套错位映射——把自检防住的错名从"复用"这侧放进来。
-  // 注入后抽 3 个方块真摆一遍：名字对不上就中止（抛错走 finally 清理），宁可全量重跑。
+  // 用一只**一次性 bot**（先于主 bot）注入旧 ids、抽 3 个真摆一遍：名字对不上就中止。
+  // 不注主 bot 是刻意的：注入方块没有物理形状（prismarine-block 的 shapes 只在
+  // inject_allowed 时重建），物理一碰就炸——自检能关物理跑完，主 bot 还要跑量测。
   if ((itemsOnly || args.resume === true) && prev?.blocks && Object.keys(prev.blocks).length > 0) {
     process.stderr.write('  预检：复用的方块实测先抽 3 个真摆一遍，对得上才继续\n');
-    const physicsWas = bot.physicsEnabled;
-    bot.physicsEnabled = false;
-    let injected = true;
+    // physicsEnabled 必须作为 createBot 选项传入：注入完成后才设的属性会被插件
+    // 注入时的 `physicsEnabled ?? true` 覆盖（踩过），而注入方块没有物理形状，
+    // 物理 tick 一碰到就炸 prismarine-physics 的 block.shapes
+    const checkBot = mineflayer.createBot({ host, port, username: `${username}Check`, version: mcVersion, auth: 'offline', physicsEnabled: false });
+    installMineflayerFixes(checkBot);
     try {
-      installModRegistry(bot, { manifest, ids: { mod: prev.mod, version: prev.version, blocks: prev.blocks, items: prev.items ?? {} } });
-    } catch (err) {
-      injected = false;
-      process.stderr.write(`  预检跳过（注册表注入失败）：${err.message}\n`);
-    }
-    if (injected) {
+      await new Promise((res, rej) => { checkBot.once('spawn', res); checkBot.once('error', rej); });
+      // bot 只收自己视距内的区块；出生点看不见测试区，blockAt 全是空——先 tp 过去
+      await cmd(`tp ${username}Check ${bx + 0.5} ${by} ${bz + 0.5}`);
+      await sleep(1500);
+      installModRegistry(checkBot, { manifest, ids: { mod: prev.mod, version: prev.version, blocks: prev.blocks, items: prev.items ?? {} } });
       const mismatches = [];
       for (const name of sampleOf(Object.keys(prev.blocks), 3)) {
         const soil = cropNames.has(name) ? 'minecraft:farmland' : 'minecraft:stone';
         await cmd(`setblock ${bx} ${by - 1} ${bz} ${soil}`);
         await cmd(`setblock ${bx} ${by} ${bz} ${name}`);
         await sleep(260);
-        const seen = bot.blockAt(at)?.name ?? '';
+        const seen = checkBot.blockAt(at)?.name ?? '';
         if (seen !== name) mismatches.push(`${name} 读回来是 ${seen || '(空)'}`);
       }
-      await cmd(`setblock ${bx} ${by} ${bz} minecraft:air`);
-      await cmd(`setblock ${bx} ${by - 1} ${bz} minecraft:stone`);
-      bot.physicsEnabled = physicsWas;
       if (mismatches.length > 0) {
         // 抛错而不是 io.fatal：让 finally 里的清理跑掉，别把 forceload 留在服务器上
         throw new Error(`复用的 ids 对不上这台服务器：${mismatches.join('；')}。ids 已过期或来自别的 jar 组合，删掉重跑全量 calibrate`);
       }
+    } finally {
+      try { checkBot.quit(); } catch { /* */ }
     }
   }
+
+  bot = mineflayer.createBot({ host, port, username, version: mcVersion, auth: 'offline' });
+  installMineflayerFixes(bot);
+  await cmd(`tp ${username} ${bx + 0.5} ${by} ${bz + 0.5}`);
+  await new Promise((res, rej) => { bot.once('spawn', res); bot.once('error', rej); });
+  await sleep(1200);
+  await cmd(`tp ${username} ${bx + 0.5} ${by} ${bz + 0.5}`);
+
+  const read = () => {
+    const b = bot.blockAt(at);
+    return b && typeof b.stateId === 'number' ? b : null;
+  };
+  // 等第一列真到客户端，否则整轮全是 null
+  await waitFor(read, () => true, 10000);
 
   const writePartial = () => {
     try {
@@ -365,11 +370,21 @@ export default async function cmdCalibrate(args, io) {
       process.stderr.write('  自检跳过（注册表注入失败）：' + err.message + '\n');
     }
     const bad = [];
-    for (const name of (injected ? Object.keys(blocks) : [])) {
+    const checked = injected ? Object.keys(blocks) : [];
+    for (const name of checked) {
+      // 每个方块都把 bot 拉回测试格：物理开着放方块会把 bot 挤得漂移，漂出
+      // 视距后 blockAt 读的是残留数据 —— 实测从第 81 个方块起全部读到同一个
+      // 残影，47 个好方块差点被当成错名删光
+      await cmd(`tp ${username} ${bx + 0.5} ${by} ${bz + 0.5}`);
       // 非作物也要有支撑面，否则方块会掉下去 —— 用石头；作物用耕地
       const soil = cropNames.has(name) ? 'minecraft:farmland' : 'minecraft:stone';
       await cmd('setblock ' + bx + ' ' + (by - 1) + ' ' + bz + ' ' + soil);
-      await cmd('setblock ' + bx + ' ' + by + ' ' + bz + ' ' + name);
+      const placeResp = await cmd('setblock ' + bx + ' ' + by + ' ' + bz + ' ' + name);
+      if (FAIL_RE.test(placeResp)) {
+        // 服务端拒绝放置不是 id 错的证据（可能这格摆不住）：不删，记一笔
+        failed.push({ block: name, kind: 'place-failed', resp: placeResp.slice(0, 120) });
+        continue;
+      }
       await sleep(260);
       const b = bot.blockAt(at);
       const seen = b?.name ?? '';
@@ -400,6 +415,12 @@ export default async function cmdCalibrate(args, io) {
     if (!injected) {
       process.stderr.write('  自检没做：注册表没注上\n');
     } else if (bad.length > 0) {
+      const deleted = bad.filter((b) => !b.kept).length;
+      if (deleted > Math.max(5, Math.floor(checked.length * 0.1))) {
+        // 大面积"错名"几乎总是环境坏了（客户端区块失新、cell 残留），不是数据坏了。
+        // 抛错中止：宁可不写盘，也别把好数据削掉 —— 实测一晚差点毁掉生产 ids。
+        throw new Error(`自检剔除 ${deleted}/${checked.length} 个方块，远超合理范围：测量环境已坏（区块失新或服务器异常）。中止本次运行，ids 文件保持原样；稍后重跑`);
+      }
       process.stderr.write('  自检剔除 ' + bad.length + ' 个量错的方块（名字对不上）：\n');
       for (const b of bad.slice(0, 8)) {
         process.stderr.write('    ' + b.block + ' 读回来是 ' + (b.seen || '(空)') + '\n');
