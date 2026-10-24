@@ -34,8 +34,9 @@
 ## 改代码时的习惯
 
 - 能写成纯函数的就写成纯函数（`manifest-probe` / `validate` / `crops` / `tag-fallback` /
-  `manifest-io` / `calibrate-core`），测试覆盖它们；只有必须连服务器的（`calibrate` /
-  `probe` / `verify` / `sidecar --build`）才写 CLI 集成测试。
+  `manifest-io` / `calibrate-core` / `server-fingerprint` / `recipes` / `recipes-join` /
+  `cortico-bridge` 的注入实现），测试覆盖它们；只有必须连服务器的（`calibrate` /
+  `probe` / `verify` / `sidecar --build` / `recipes` 的捕获）才写 CLI 集成测试。
 - **测试不许依赖本机路径**：用 `test/fixtures/tiny-mod.jar`（2.8KB 合成夹具，覆盖了
   单数/复数资源目录、tag 展开、作物推断、旧版 loot_tables）。
 - 每个真实事故都在 `test/` 里留一条回归。已经钉住的有：
