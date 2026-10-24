@@ -37,22 +37,45 @@ export function joinRecipes(parsed, modItems, vanillaById) {
   const entries = [];
   const unresolved = [];
 
+  /** f32 在线上是二进制，透传会带出 0.20000000298023224 这种噪声。 */
+  const round3 = (v) => (typeof v === 'number' && Number.isFinite(v) ? Math.round(v * 1000) / 1000 : (v ?? null));
+
   for (const rec of parsed) {
     const out = { id: rec.name, type: rec.type.replace(/^minecraft:/, ''), _source: 'server' };
     const d = rec.data ?? {};
     let ok = true;
-    const item = (id) => {
+    /** 产物槽：{id, count} —— count 是产出数量（4 根木棍靠它），下游合成次数按它算。 */
+    const resultItem = (slot) => {
+      if (!slot || slot.id === 0) return null;
+      const n = byId[slot.id];
+      if (!n) { ok = false; return null; }
+      return { id: n, count: slot.count ?? 1 };
+    };
+    /** 原料引用：候选的堆叠数在配方语义里无意义，只留 id。 */
+    const ref = (id) => {
       if (id === 0 || id == null) return null;
       const n = byId[id];
       if (!n) { ok = false; return null; }
       return { id: n };
     };
-    const items = (ids) => (ids ?? []).map(item).filter(Boolean);
+    /** 候选列表：去重保序。**嵌套 tag 会被服务端重复展开**（#c:tools/knives 实测出现两遍），
+     *  这不是解析错，是 tag 里有同名成员；这里顺手清掉，别把重复带进清单。 */
+    const items = (ids) => {
+      const seen = new Set();
+      const list = [];
+      for (const raw of ids ?? []) {
+        const it = ref(raw);
+        if (!it || seen.has(it.id)) continue;
+        seen.add(it.id);
+        list.push(it);
+      }
+      return list;
+    };
     const t = out.type;
 
     if (t === 'crafting_shapeless') {
       out.ingredients = (d.ingredients ?? []).map((ids) => items(ids));
-      out.result = item(d.result);
+      out.result = resultItem(d.result);
     } else if (t === 'crafting_shaped') {
       const w = d.gridWidth ?? 0;
       const h = d.gridHeight ?? 0;
@@ -65,36 +88,41 @@ export function joinRecipes(parsed, modItems, vanillaById) {
         for (let x = 0; x < w; x++) row.push(items(d.grid?.[x]?.[y] ?? []));
         out.grid.push(row);
       }
-      out.result = item(d.result);
+      out.result = resultItem(d.result);
     } else if (t === 'smelting' || t === 'blasting' || t === 'smoking' || t === 'campfire_cooking') {
       out.ingredients = items(d.ingredient);
-      out.result = item(d.result);
-      out.experience = d.experience ?? null;
+      out.result = resultItem(d.result);
+      out.experience = round3(d.experience);
       out.cooking_time = d.cookTime ?? null;
     } else if (t === 'stonecutting') {
       out.ingredients = items(d.ingredient);
-      out.result = item(d.result);
+      out.result = resultItem(d.result);
     } else if (t === 'smithing_transform' || t === 'smithing_trim') {
       out.template = items(d.template);
       out.base = items(d.base);
       out.addition = items(d.addition);
-      if (t === 'smithing_transform') out.result = item(d.result);
+      if (t === 'smithing_transform') out.result = resultItem(d.result);
     } else if (t.endsWith(':cutting')) {
       // modsmith 语义口径：与 inspect 的 jar 提取同形
       out.ingredients = items(d.ingredient);
       out.tool = items(d.tool);
       const results = d.results ?? [];
-      out.results = results.map((r) => ({ ...(item(r.result ?? 0) ?? {}), chance: r.chance ?? null }));
+      out.results = results.map((r) => {
+        const it = resultItem(r.result ?? null);
+        return it ? { ...it, chance: round3(r.chance) } : null;
+      }).filter(Boolean);
       if (out.results.length === 0) out.result = null;
     } else if (t.endsWith(':cooking')) {
       out.ingredients = (Array.isArray(d.ingredients?.[0]) ? d.ingredients : [d.ingredients]).map((ids) => items(ids));
-      out.result = item(d.result);
-      out.container = item(d.container);
-      out.experience = d.experience ?? null;
+      out.result = resultItem(d.result);
+      out.container = resultItem(d.container);
+      out.experience = round3(d.experience);
       out.cooking_time = d.cookTime ?? null;
     } else {
-      // crafting_special / dough / food_serving 等：无原料产物的，保留原样
+      // crafting_special_* / dough / food_serving：SimpleRecipeSerializer 只发一个 category，
+      // 没有原料也没有产物数据——不是"解析失败"，是协议里就没有。标出来，别混进可消费计数。
       out.raw = d;
+      out.unsupported = 'SimpleRecipeSerializer：服务端只发 category，无原料/产物数据';
     }
 
     if (!ok) unresolved.push(rec.name);

@@ -52,14 +52,15 @@ function readString(buf, off) {
 /** Slot（1.21.1）：itemCount=0 即空；非空读 itemId + 组件数（非零即中止——组件载荷按类型各异，无法盲跳）。 */
 function readSlot(buf, off) {
   const itemCount = readVarint(buf, off);
-  if (itemCount.value === 0) return { item: 0, next: itemCount.next };
+  if (itemCount.value === 0) return { id: 0, count: 0, next: itemCount.next };
   const itemId = readVarint(buf, itemCount.next);
   const added = readVarint(buf, itemId.next);
   const removed = readVarint(buf, added.next);
   if (added.value !== 0 || removed.value !== 0) {
     throw new RecipeParseError(`Slot 带组件（added ${added.value} / removed ${removed.value}）：组件载荷按类型各异，无法盲读`, off);
   }
-  return { item: itemId.value, next: removed.next };
+  // count 是产物数量（一根木头出 4 根木棍就靠它），join 必须保留
+  return { id: itemId.value, count: itemCount.value, next: removed.next };
 }
 
 /** ingredient = varint n × n 个 Slot，取非空槽的 itemId 列表。 */
@@ -69,7 +70,7 @@ function readIngredient(buf, off) {
   let next = n.next;
   for (let i = 0; i < n.value; i++) {
     const s = readSlot(buf, next);
-    if (s.item > 0) items.push(s.item);
+    if (s.id > 0) items.push(s.id);
     next = s.next;
   }
   return { items, next };
@@ -140,7 +141,7 @@ function readOne(buf, cur, f, data) {
     data[key] = buf.readFloatBE(cur); return cur + 4;  // Minecraft 网络数值字段是大端
   }
   if (f.kind === 'slot') {
-    const r = readSlot(buf, cur); data[key] = r.item; return r.next;
+    const r = readSlot(buf, cur); data[key] = { id: r.id, count: r.count }; return r.next;
   }
   if (f.kind === 'ingredient') {
     const r = readIngredient(buf, cur); data[key] = r.items; return r.next;

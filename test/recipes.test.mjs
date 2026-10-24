@@ -45,7 +45,7 @@ test('shapeless：group/category/ingredients/result 全解析，整包对齐', (
   assert.equal(r.recipes.length, 1);
   const rec = r.recipes[0];
   assert.equal(rec.type, 'minecraft:crafting_shapeless');
-  assert.deepEqual(rec.data, { group: 'yellow_dye', category: 3, ingredients: [[988]], result: 948 });
+  assert.deepEqual(rec.data, { group: 'yellow_dye', category: 3, ingredients: [[988]], result: { id: 948, count: 2 } });
 });
 
 test('shaped：grid 按 [x][y] 落位（x 外层），w/h 语义字段', () => {
@@ -86,7 +86,7 @@ test('自定义类型走 sidesheets 文法；ChanceResult 的 [slot,f32] list', 
   const rec = r.recipes[0];
   assert.deepEqual(rec.data.ingredient, [988]);
   assert.deepEqual(rec.data.tool, [1404, 1405]);
-  assert.deepEqual(rec.data.results, [{ result: 1440, chance: 1 }]);
+  assert.deepEqual(rec.data.results, [{ result: { id: 1440, count: 2 }, chance: 1 }]);
   assert.equal(rec.data.sound, null);
   assert.deepEqual(r.customTypes, [24]);
 });
@@ -124,19 +124,19 @@ const MOD = { 'farmersdelight:minced_beef': 1440, 'farmersdelight:flint_knife': 
 test('join：数字 id 翻成物品名，vanilla 与 mod 表合用', () => {
   const parsed = [
     { name: 'minecraft:y', type: 'minecraft:crafting_shapeless', typeId: 1,
-      data: { group: 'g', category: 3, ingredients: [[988]], result: 948 } },
+      data: { group: 'g', category: 3, ingredients: [[988]], result: { id: 948, count: 2 } } },
   ];
   const { entries, unresolved } = joinRecipes(parsed, MOD, VANILLA);
   assert.equal(unresolved.length, 0);
   assert.deepEqual(entries[0].ingredients, [[{ id: 'minecraft:beef' }]]);
-  assert.deepEqual(entries[0].result, { id: 'minecraft:yellow_dye' });
+  assert.deepEqual(entries[0].result, { id: 'minecraft:yellow_dye', count: 2 });
   assert.equal(entries[0]._source, 'server');
 });
 
 test('join：翻不出的条目进 unresolved，不出错名', () => {
   const parsed = [
     { name: 'x', type: 'minecraft:crafting_shapeless', typeId: 1,
-      data: { ingredients: [[99999]], result: 948 } },
+      data: { ingredients: [[99999]], result: { id: 948, count: 2 } } },
   ];
   const { entries, unresolved } = joinRecipes(parsed, MOD, VANILLA);
   assert.equal(entries.length, 0);
@@ -147,7 +147,7 @@ test('join：shaped 的 grid 翻成按行的形状（y 外层）', () => {
   const parsed = [{
     name: 's', type: 'minecraft:crafting_shaped', typeId: 0,
     // [x][y]：x=0 是 [beef, dye]，x=1 是 [dye, dye]
-    data: { gridWidth: 2, gridHeight: 2, grid: [[[988], [948]], [[948], [948]]], result: 948 },
+    data: { gridWidth: 2, gridHeight: 2, grid: [[[988], [948]], [[948], [948]]], result: { id: 948, count: 2 } },
   }];
   const { entries } = joinRecipes(parsed, MOD, VANILLA);
   // 行（y 外层）：第 0 行取 grid[0][0], grid[1][0] = beef, dye；第 1 行 = dye, dye（每格是候选列表）
@@ -163,5 +163,59 @@ test('vanilla 22 种序列化器全部带名且编号连续', () => {
     assert.ok(s, `编号 ${i} 缺失`);
     assert.ok(s.name.startsWith('minecraft:'));
     for (const f of s.fields) assert.equal(typeof f.name, 'string', `${s.name} 有无名字段`);
+  }
+});
+
+// ---------- 数量 / 去重 / 噪声 / unsupported（接缝修复回归） ----------
+
+test('join：result.count 保留产物数量（一根木头 4 根木棍）', () => {
+  const parsed = [{
+    name: 'minecraft:stick', type: 'minecraft:crafting_shaped', typeId: 0,
+    data: {
+      gridWidth: 1, gridHeight: 2,
+      grid: [[[988]], [[988]]],
+      result: { id: 948, count: 4 },
+    },
+  }];
+  const { entries } = joinRecipes(parsed, MOD, VANILLA);
+  assert.deepEqual(entries[0].result, { id: 'minecraft:yellow_dye', count: 4 });
+});
+
+test('join：候选去重保序（嵌套 tag 在服务端会重复展开，实测两遍）', () => {
+  const parsed = [{
+    name: 'farmersdelight:cutting/beef', type: 'farmersdelight:cutting', typeId: 24,
+    data: {
+      ingredient: [988],
+      tool: [1404, 1405, 1404, 1405],   // 服务端确实发了两遍
+      results: [{ result: { id: 1440, count: 2 }, chance: 1 }],
+      sound: null,
+    },
+  }];
+  const { entries } = joinRecipes(parsed, { ...MOD, 'farmersdelight:iron_knife': 1405 }, VANILLA);
+  assert.deepEqual(entries[0].tool, [
+    { id: 'farmersdelight:flint_knife' },
+    { id: 'farmersdelight:iron_knife' },
+  ], '重复的刀要去掉，顺序保持首次出现');
+  assert.deepEqual(entries[0].results, [{ id: 'farmersdelight:minced_beef', count: 2, chance: 1 }]);
+});
+
+test('join：f32 噪声 round 到 3 位（0.20000000298023224 → 0.2）', () => {
+  const parsed = [{
+    name: 'minecraft:x', type: 'minecraft:smelting', typeId: 15,
+    data: { ingredient: [988], result: { id: 948, count: 1 }, experience: 0.20000000298023224, cookTime: 200 },
+  }];
+  const { entries } = joinRecipes(parsed, MOD, VANILLA);
+  assert.equal(entries[0].experience, 0.2);
+});
+
+test('join：SimpleRecipeSerializer 条目标 unsupported，不再混进可消费计数', () => {
+  const parsed = [
+    { name: 'farmersdelight:wheat_dough_from_water', type: 'farmersdelight:dough', typeId: 26, data: { category: 3 } },
+    { name: 'minecraft:armordye', type: 'minecraft:crafting_special_armordye', typeId: 2, data: { category: 0 } },
+  ];
+  const { entries } = joinRecipes(parsed, MOD, VANILLA);
+  for (const e of entries) {
+    assert.match(e.unsupported, /SimpleRecipeSerializer/);
+    assert.equal(e.result, undefined);
   }
 });
