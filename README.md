@@ -22,6 +22,12 @@ modsmith probe    <manifest.json>     实测哪些容器/站点真能用
 modsmith verify   <manifest.json>     冒烟：方块认得、物品能拿、配方能合
 ```
 
+可选一层（要一次 calibrate 捕获）：
+
+```
+modsmith recipes <manifest.json>     把服务端真配方翻进清单（KubeJS/数据包改过的，jar 里读不到）
+```
+
 可选两层（要 LLM）：
 
 ```
