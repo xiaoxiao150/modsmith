@@ -5,3 +5,4 @@ mods/
 *.log
 _*
 build/
+.zcode/

@@ -221,12 +221,9 @@ export function inspectJar(jarPath, opts = {}) {
 
   // ---- 物品 ----
   const items = {};
-  const blockItems = new Set();
   for (const name of itemModels) {
     items[`${namespace}:${name}`] = { stack: 64 };
-    if (blocks[`${namespace}:${name}`]) blockItems.add(name);
   }
-  // 有方块但没 item model 的，unobtainable；有 model 才是能拿在手里的物品
 
   // ---- 配方 ----
   // 资源目录有两代写法：1.21 用 `recipe/`，旧版用 `recipes/`。两种都扫。
