@@ -42,3 +42,8 @@ gradle build        # 版本参数在 gradle.properties；modsmith 按 --mc-vers
 ```
 
 产物在 `build/libs/modsmith-sidecar-<version>.jar`。装不装进哪台服务器由人决定。
+
+## 已知限制
+
+熟成队列（JOBS）在内存里：服务器重启会丢掉没走完的熟成（原料已扣、成品不给），
+和原版熔炉的语义不同。要持久化得把待熟成写进 world save——目前不做，接受这个边界。
