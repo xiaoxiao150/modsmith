@@ -209,3 +209,33 @@ test('校验器：分阶段方块作物要给 stages', () => {
   assert.equal(hasErrors(bad), true);
   assert.ok(bad.some((i) => i.path === 'crops.c.stages'));
 });
+
+// ---------- 配方条目：两种形状都要能过校验（接缝修复回归） ----------
+
+test('校验器：服务端真值配方（grid + 候选 + count）零 error', () => {
+  const issues = validateManifest(manifestWith({
+    recipes: [
+      { id: 'minecraft:oak_planks', type: 'crafting_shaped', width: 1, height: 1,
+        grid: [[[{ id: 'minecraft:oak_log' }]]], result: { id: 'minecraft:oak_planks', count: 4 }, _source: 'server' },
+      { id: 'minecraft:stick', type: 'crafting_shapeless',
+        ingredients: [[{ id: 'minecraft:oak_planks' }]], result: { id: 'minecraft:stick', count: 4 } },
+    ],
+  }));
+  assert.equal(hasErrors(issues), false, JSON.stringify(issues));
+});
+
+test('校验器：配方缺 id/type、shaped 没形状、result 缺 id 都报 error', () => {
+  const issues = validateManifest(manifestWith({
+    recipes: [
+      { type: 'crafting_shapeless', ingredients: [], result: { id: 'x' } },
+      { id: 'b', type: 'crafting_shaped' },
+      { id: 'c', type: 'crafting_shapeless', ingredients: [], result: { count: 2 } },
+      { id: 'd', type: 'crafting_shapeless', ingredients: [], result: { id: 'x', count: 0 } },
+    ],
+  }));
+  const paths = issues.filter((i) => i.level === 'error').map((i) => i.path);
+  assert.ok(paths.includes('recipes[0].id'), paths.join(','));
+  assert.ok(paths.includes('recipes[1]'), paths.join(','));
+  assert.ok(paths.includes('recipes[2].result'), paths.join(','));
+  assert.ok(paths.includes('recipes[3].result.count'), paths.join(','));
+});

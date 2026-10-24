@@ -162,6 +162,34 @@ export function validateManifest(raw) {
     err('unsupported', 'unsupported 要是字符串数组');
   }
 
+  // ---- 配方条目：两种形状（jar 的 pattern/key、服务端的 grid/候选）都放行，但结构要对 ----
+  // schema 里 file 已降为可选、required 是 id+type；这里做同一套的运行时版本，
+  // 因为生成端读的是 validate.mjs 而不是 schema 文件。
+  if (Array.isArray(raw.recipes)) {
+    raw.recipes.forEach((r, i) => {
+      const at = `recipes[${i}]`;
+      if (!isObject(r)) { err(at, '配方条目不是对象'); return; }
+      if (typeof r.id !== 'string' || !r.id) err(`${at}.id`, '配方缺 id');
+      if (typeof r.type !== 'string' || !r.type) err(`${at}.type`, '配方缺 type');
+      const t = String(r.type ?? '');
+      if (t === 'crafting_shaped' && !Array.isArray(r.pattern) && !Array.isArray(r.grid)) {
+        err(at, 'crafting_shaped 配方要有 pattern（jar 形状）或 grid（服务端形状）');
+      }
+      if (t === 'crafting_shapeless' && !Array.isArray(r.ingredients)) {
+        err(`${at}.ingredients`, 'crafting_shapeless 配方要有 ingredients 数组');
+      }
+      // result 允许多产物数组与 null（旧形状）；单产物必须是 {id, count?}
+      if (r.result !== undefined && r.result !== null && !Array.isArray(r.result)) {
+        if (!isObject(r.result) || typeof r.result.id !== 'string') {
+          err(`${at}.result`, 'result 要带 id');
+        } else if (r.result.count !== undefined
+          && (!Number.isInteger(r.result.count) || r.result.count < 1)) {
+          err(`${at}.result.count`, 'result.count 要是正整数');
+        }
+      }
+    });
+  }
+
   return issues;
 }
 

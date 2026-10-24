@@ -258,17 +258,18 @@
     "recipe": {
       "type": "object",
       "required": [
-        "file",
+        "id",
         "type"
       ],
       "additionalProperties": true,
       "properties": {
         "id": {
           "type": "string",
-          "description": "1.21 配方 id，如 farmersdelight:cooking/beef_stew。"
+          "description": "配方 id：jar 形状是相对路径，服务端真值是游戏内配方 id（如 farmersdelight:cooking/beef_stew）。"
         },
         "file": {
-          "type": "string"
+          "type": "string",
+          "description": "jar 形状专用（旧）：配方文件相对路径。服务端真值条目没有它。"
         },
         "type": {
           "type": "string"
@@ -308,6 +309,37 @@
             "object",
             "null"
           ]
+        },
+        "grid": {
+          "type": "array",
+          "description": "服务端真值的合成网格：行 × 格，每格是候选物品数组（[{id}]）。",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "width": {
+          "type": "integer",
+          "description": "服务端真值的网格宽（列数）。"
+        },
+        "height": {
+          "type": "integer",
+          "description": "服务端真值的网格高（行数）。"
+        },
+        "unsupported": {
+          "type": "string",
+          "description": "协议里就没有原料/产物数据（SimpleRecipeSerializer），不可消费。"
+        },
+        "_source": {
+          "enum": [
+            "server"
+          ],
+          "description": "服务端真值（declare_recipes 解析）标记。"
         }
       }
     },
