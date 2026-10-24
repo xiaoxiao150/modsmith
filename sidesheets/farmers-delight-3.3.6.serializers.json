@@ -1,0 +1,91 @@
+{
+  "_comment": "FD Refabricated 1.21.1 的 declare_recipes 自定义序列化器文法。字段序经 javap 反汇编 Serializer.fromNetwork 验证（cooking/cutting）与 SimpleRecipeSerializer 判定（dough/food_serving），再对 139332 字节真实捕获逐字节核实。编号是服务器 RecipeSerializer 注册顺序，加/换 mod 会变——变了就重跑 calibrate 捕获并用这份文法对齐。",
+  "serializers": {
+    "23": {
+      "name": "farmersdelight:cooking",
+      "fields": [
+        {
+          "name": "group",
+          "kind": "string"
+        },
+        {
+          "name": "category",
+          "kind": "string"
+        },
+        {
+          "name": "ingredients",
+          "kind": "ingredients"
+        },
+        {
+          "name": "result",
+          "kind": "slot"
+        },
+        {
+          "name": "container",
+          "kind": "slot"
+        },
+        {
+          "name": "experience",
+          "kind": "f32"
+        },
+        {
+          "name": "cookTime",
+          "kind": "varint"
+        }
+      ]
+    },
+    "24": {
+      "name": "farmersdelight:cutting",
+      "fields": [
+        {
+          "name": "group",
+          "kind": "string"
+        },
+        {
+          "name": "ingredient",
+          "kind": "ingredient"
+        },
+        {
+          "name": "tool",
+          "kind": "ingredient"
+        },
+        {
+          "name": "results",
+          "kind": "list",
+          "item": [
+            {
+              "name": "result",
+              "kind": "slot"
+            },
+            {
+              "name": "chance",
+              "kind": "f32"
+            }
+          ]
+        },
+        {
+          "name": "sound",
+          "kind": "optional-identifier"
+        }
+      ]
+    },
+    "25": {
+      "name": "farmersdelight:food_serving",
+      "fields": [
+        {
+          "name": "category",
+          "kind": "varint"
+        }
+      ]
+    },
+    "26": {
+      "name": "farmersdelight:dough",
+      "fields": [
+        {
+          "name": "category",
+          "kind": "varint"
+        }
+      ]
+    }
+  }
+}

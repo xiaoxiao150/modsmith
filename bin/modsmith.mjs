@@ -61,6 +61,16 @@ const USAGE = `modsmith ${VERSION} — 把 Fabric mod jar 变成机器人能用�
       --mods-dir <dir>       manifest/ids 目录，默认 ./mods
       其余参数与 calibrate 相同。
 
+  modsmith recipes <manifest.json> [选项]
+      把服务端真配方（calibrate 捕获的 declare_recipes）翻进清单，替换 jar 里读的静态数据。
+      解析失败的整包拒绝、翻不出名字的条目跳过、成功率 <95% 不写回（--threshold 调）。
+
+      --capture <file>     原始捕获（默认 <manifest 同名>-recipes.raw.bin）
+      --ids <file>         数字 id 反查表（默认 <manifest 同名>-ids.json）
+      --serializers <file> 模组自定义序列化器文法（默认 sidesheets/<pack>.serializers.json）
+      --write              真写回 manifest（默认试运行）
+      --threshold <0..1>   成功率闸门，默认 0.95
+
   modsmith merge <ids1.json> <ids2.json> ... --out <file>
       把分阶段量出来的 ids 合并（后者只覆盖它有数据的部分）。
 
@@ -238,6 +248,10 @@ async function main() {
   const cmd = args._[0];
   switch (cmd) {
     case 'inspect': return cmdInspect(args);
+    case 'recipes': {
+      const mod = await import('../src/recipes-cli.mjs');
+      return mod.default(args, { fatal });
+    }
     case 'probe':
     case 'calibrate':
     case 'verify':

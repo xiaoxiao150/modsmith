@@ -245,9 +245,15 @@ export function installMineflayerFixes(bot) {
       } catch (err) {
         const name = packetNameOf(bot, buf);
         if (!drop.has(name)) throw err;
+        // 服务端真配方只活在这个包里（mineflayer 没有配方插件，prismarine-recipe 用的是
+        // 静态 registry 数据）。整包解析失败意味着无法对齐——但原始字节是真的，存下来
+        // 供 `modsmith recipes` 离线解析。只存第一份（登录时只有一个 declare_recipes）。
+        if (name === 'declare_recipes' && !bot._modsmithDeclareRecipes) {
+          bot._modsmithDeclareRecipes = Buffer.from(buf);
+        }
         if (!seen.has(name)) {
           seen.add(name);
-          console.warn(`丢弃无法解析的 ${name}（${buf.length} 字节）：模组改写了静态注册表`);
+          console.warn(`丢弃无法解析的 ${name}（${buf.length} 字节）：模组改写了静态注册表${name === 'declare_recipes' ? '；原始包已留存，可用 modsmith recipes 解析' : ''}`);
         }
         return {
           data: { name: '_modsmith_dropped', params: {} },

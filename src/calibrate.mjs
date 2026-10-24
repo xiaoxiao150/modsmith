@@ -14,6 +14,7 @@
  *   b) 服务端方块更新常常晚一拍，单次读可能拿到上一格残留。对策：连读两次一致才认。
  */
 import mineflayer from 'mineflayer';
+import { writeFileSync } from 'node:fs';
 import { Vec3 } from 'vec3';
 import { readManifest } from './manifest-io.mjs';
 import { writeIds } from './manifest-io.mjs';
@@ -173,6 +174,9 @@ export default async function cmdCalibrate(args, io) {
         // 抛错而不是 io.fatal：让 finally 里的清理跑掉，别把 forceload 留在服务器上
         throw new Error(`复用的 ids 对不上这台服务器：${mismatches.join('；')}。ids 已过期或来自别的 jar 组合，删掉重跑全量 calibrate`);
       }
+      // 最后一个样本留在格里会让主 bot 的物理 tick 踩到（vanilla 注册表没有它的形状）
+      await cmd(`setblock ${bx} ${by} ${bz} minecraft:air`);
+      await cmd(`setblock ${bx} ${by - 1} ${bz} minecraft:stone`);
     } finally {
       try { checkBot.quit(); } catch { /* */ }
     }
@@ -360,7 +364,6 @@ export default async function cmdCalibrate(args, io) {
     };
     // 中途注入不会重建 prismarine-block 的 shapes（那一步只在 inject_allowed 时做），
     // 物理引擎下一帧就会炸在 block.shapes 上。验名字用不着物理，先关掉。
-    const physicsWas = bot.physicsEnabled;
     bot.physicsEnabled = false;
     let injected = true;
     try {
@@ -411,7 +414,10 @@ export default async function cmdCalibrate(args, io) {
     }
     await cmd('setblock ' + bx + ' ' + by + ' ' + bz + ' minecraft:air');
     await cmd('setblock ' + bx + ' ' + (by - 1) + ' ' + bz + ' minecraft:stone');
-    bot.physicsEnabled = physicsWas;
+    // 物理保持关到进程结束：注册表还注入着，注入方块没有物理形状（prismarine-block
+    // 的 shapes 只在 inject_allowed 时重建），恢复物理后任何一个 tick 都可能踩上去炸。
+    // 自检之后 bot 不再需要动，关着没有副作用。
+    bot.physicsEnabled = false;
     if (!injected) {
       process.stderr.write('  自检没做：注册表没注上\n');
     } else if (bad.length > 0) {
@@ -436,6 +442,15 @@ export default async function cmdCalibrate(args, io) {
     } else {
       process.stderr.write('  自检通过：' + Object.keys(blocks).length + ' 个方块全部对得上\n');
     }
+  }
+
+  // 服务端真配方包：mineflayer 没有配方插件、模组改注册表后整包解析不了，被容错层
+  // 丢弃，但原始字节是真的 —— 落盘供 `modsmith recipes` 离线解析，省一次上服。
+  const captured = bot._modsmithDeclareRecipes;
+  if (captured) {
+    const rawPath = outPath.replace(/-ids\.json$/, '-recipes.raw.bin');
+    writeFileSync(rawPath, captured);
+    process.stderr.write(`  服务端配方包 ${captured.length} 字节 → ${rawPath}（modsmith recipes <manifest> 解析）\n`);
   }
 
   writeIds(outPath, ids);
