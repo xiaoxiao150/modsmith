@@ -11,8 +11,8 @@ export interface RegistryCounts {
 }
 
 export interface ModPackLike {
-  manifest: Record<string, unknown>;
-  ids: Record<string, unknown>;
+  manifest: object;
+  ids: object;
 }
 
 /** bot 只按形状使用（bot.registry / bot._client），不依赖 mineflayer 的完整类型。 */

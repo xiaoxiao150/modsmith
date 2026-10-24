@@ -11,7 +11,10 @@
     "modsmith": "./bin/modsmith.mjs"
   },
   "exports": {
-    ".": "./src/index.mjs"
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./src/index.mjs"
+    }
   },
   "types": "./types/index.d.ts",
   "scripts": {

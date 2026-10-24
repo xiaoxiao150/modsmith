@@ -12,6 +12,7 @@ import { readSidecar, writeSidecar, sidecarTemplateFrom } from './crops-sidecar.
 import { writeManifest } from './manifest-io.mjs';
 import { installModRegistry, installMineflayerFixes, loadModPack, setModsDir, listPacks } from './cortico-bridge.mjs';
 import { validateManifest, hasErrors, describeIssues, parseManifest, statsOf } from './validate.mjs';
+import { checkServerMods, fingerprintDir } from './server-fingerprint.mjs';
 
 export { inspectJar, readSidecar, writeSidecar, sidecarTemplateFrom, writeManifest };
 
@@ -20,6 +21,7 @@ export { inspectJar, readSidecar, writeSidecar, sidecarTemplateFrom, writeManife
 export {
   installModRegistry, installMineflayerFixes, loadModPack, setModsDir, listPacks,
   validateManifest, hasErrors, describeIssues, parseManifest, statsOf,
+  checkServerMods, fingerprintDir,
 };
 
 export const VERSION = '0.2.0';
