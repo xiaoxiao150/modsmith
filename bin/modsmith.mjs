@@ -50,6 +50,7 @@ const USAGE = `modsmith ${VERSION} — 把 Fabric mod jar 变成机器人能用�
       --blocks-only         只量方块（配合 --ids 复用已有的物品结果）
       --items-only          只量物品（复用 --ids 里已有的方块结果，省时间）
       --no-selfcheck         跳过量完后的自检（不推荐：错 id 会被写进清单）
+      --skip-block <n,..>   跳过点名方块：放上去服务端会崩的引信方块（看崩溃报告点名）
       --debug-items         逐件打印槽位与 type，排查物品校准用
 
   modsmith verify <manifest.json> [选项]
@@ -306,23 +307,13 @@ async function cmdOnboard(args) {
     if (s.blocked) fatal(`${s.id} 无法执行：${s.reason}`);
     if (s.reason) console.error(`  - ${s.id}：${s.reason}`);
     console.error(`▶ ${s.id}：${s.title}`);
-    const mod = await import(`../src/${s.id}.mjs`);
-    await mod.default(parseArgs(s.argv.slice(1)), { fatal });
+    await runCommand(parseArgs(s.argv));
   }
   console.error('✓ onboard 全部步骤完成。侧车 jar 与站点配置在 sidecars/ 下——装不装进服务器由你决定（绝不自动装）。');
 }
 
-async function main() {
-  const argv = process.argv.slice(2);
-  if (argv.length === 0 || argv[0] === '--help' || argv[0] === '-h') {
-    console.log(USAGE);
-    return;
-  }
-  if (argv[0] === '--version' || argv[0] === '-V') {
-    console.log(VERSION);
-    return;
-  }
-  const args = parseArgs(argv);
+/** 命令分发（main 与 onboard 的步骤执行共用；argv[0] 是命令名）。 */
+async function runCommand(args) {
   const cmd = args._[0];
   switch (cmd) {
     case 'inspect': return cmdInspect(args);
@@ -351,6 +342,19 @@ async function main() {
     default:
       fatal(`不认识的命令：${cmd}（用 --help 看用法）`);
   }
+}
+
+async function main() {
+  const argv = process.argv.slice(2);
+  if (argv.length === 0 || argv[0] === '--help' || argv[0] === '-h') {
+    console.log(USAGE);
+    return;
+  }
+  if (argv[0] === '--version' || argv[0] === '-V') {
+    console.log(VERSION);
+    return;
+  }
+  return runCommand(parseArgs(argv));
 }
 
 void main().catch((e) => {
