@@ -8,6 +8,18 @@
 import { createRequire } from 'node:module';
 import { parseDeclareRecipes } from './recipes.mjs';
 
+/**
+ * 有完整 payload 但**不是工作台网格**的自定义配方类型：数据照解析、照落 manifest，
+ * 只是标 unsupported（下游合成技能执行不了）。文案必须说清"为什么不可消费"——
+ * 把"有数据"的类型也写成"服务端只发 category"是错误报告。
+ */
+const SPECIAL_UNSUPPORTED = {
+  'twilightforest:no_template_smithing': '无模板锻造：特殊配方（base/addition + 组件编号表）',
+  'twilightforest:travellers_gear_modifier_shaped_recipe': '旅者装备改装（有形状）：payload 内嵌 JSON 配方，未解析',
+  'twilightforest:travellers_gear_modifier_shapeless_recipe': '旅者装备改装（无形状）：payload 内嵌 JSON 配方，未解析',
+  'twilightforest:travellers_vest_gloves_merge_recipe': '旅者背心/手套合并：特殊配方（只发 category）',
+};
+
 /** vanilla 的 数字id → 物品名 表（minecraft-data；modsmith 没直接依赖它，借 mineflayer 的解析路径）。 */
 export function vanillaItemTable(mcVersion = '1.21.1') {
   const require = createRequire(import.meta.url);
@@ -21,6 +33,22 @@ export function vanillaItemTable(mcVersion = '1.21.1') {
   const table = {};
   for (const item of md.itemsArray) table[item.id] = `minecraft:${item.name}`;
   return table;
+}
+
+/**
+ * vanilla 最大方块状态 id —— mod 方块的状态 id 必然比它大（注册顺序）。
+ * calibrate 用这条不变量挡"读到了残留方块"的假数据。
+ */
+export function vanillaBlockStateCeiling(mcVersion = '1.21.1') {
+  const require = createRequire(import.meta.url);
+  let md;
+  try {
+    md = require('minecraft-data')(mcVersion);
+  } catch {
+    const requireViaMineflayer = createRequire(require.resolve('mineflayer'));
+    md = requireViaMineflayer('minecraft-data')(mcVersion);
+  }
+  return Math.max(0, ...md.blocksArray.map((b) => b.maxStateId));
 }
 
 /**
@@ -119,6 +147,34 @@ export function joinRecipes(parsed, modItems, vanillaById) {
       out.container = resultItem(d.container);
       out.experience = round3(d.experience);
       out.cooking_time = d.cookTime ?? null;
+    } else if (t === 'twilightforest:drying') {
+      // 协议里有完整数据（input/result/dryingTime），但它是方块交互配方——不是工作台网格，
+      // 标 unsupported 别混进可消费计数；字段照留，人查 manifest 时看得见真值。
+      out.ingredients = items(d.input);
+      out.result = resultItem(d.result);
+      out.cooking_time = d.dryingTime ?? null;
+      out.unsupported = '晾干：方块交互配方（有 input/result/dryingTime，非工作台网格）';
+    } else if (t === 'twilightforest:uncrafting') {
+      out.cost = d.cost ?? null;
+      out.ingredients = items(d.input);
+      out.width = d.gridWidth ?? 0;
+      out.height = d.gridHeight ?? 0;
+      out.grid = [];
+      for (let y = 0; y < (d.gridHeight ?? 0); y++) {
+        const row = [];
+        for (let x = 0; x < (d.gridWidth ?? 0); x++) row.push(items(d.grid?.[y]?.[x] ?? []));
+        out.grid.push(row);
+      }
+      out.unsupported = '拆解：特殊配方（cost/input/pattern，非工作台网格）';
+    } else if (t === 'twilightforest:scepter_repair') {
+      out.ingredients = (d.repairItems ?? []).map((ids) => items(ids));
+      const scepter = ref(d.scepter);
+      out.result = scepter ? { ...scepter, count: 1 } : null;
+      out.durability = d.durability ?? null;
+      out.unsupported = '权杖修复：特殊配方（scepter/repairItems/durability，非工作台网格）';
+    } else if (SPECIAL_UNSUPPORTED[t]) {
+      out.raw = d;
+      out.unsupported = SPECIAL_UNSUPPORTED[t];
     } else {
       // crafting_special_* / dough / food_serving：SimpleRecipeSerializer 只发一个 category，
       // 没有原料也没有产物数据——不是"解析失败"，是协议里就没有。标出来，别混进可消费计数。

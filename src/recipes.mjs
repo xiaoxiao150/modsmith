@@ -14,8 +14,9 @@
  *
  * 帧结构（1.21.1）：varint 包号前缀 → varint 条数 → 每条 [string name, varint typeId, payload]。
  * ingredient = varint n × n 个 Slot；Slot = varint itemCount（0=空），
- * 非空再读 varint itemId、added/removed 组件数（非零即中止）。
+ * 非空再读 varint itemId、added/removed 组件数（非零委托 slot-components 解释）。
  */
+import { readSlotWithComponents } from './slot-components.mjs';
 
 /** 读取越界/残包的统一错误。 */
 export class RecipeParseError extends Error {
@@ -49,7 +50,7 @@ export function readString(buf, off) {
   return { value: buf.toString('utf8', next, next + len), next: next + len };
 }
 
-/** Slot（1.21.1）：itemCount=0 即空；非空读 itemId + 组件数（非零即中止——组件载荷按类型各异，无法盲跳）。 */
+/** Slot（1.21.1）：itemCount=0 即空；非空读 itemId + 组件数（非零即中止——组件载荷按类型各异，无法盲读）。 */
 export function readSlot(buf, off) {
   const itemCount = readVarint(buf, off);
   if (itemCount.value === 0) return { id: 0, count: 0, next: itemCount.next };
@@ -57,7 +58,13 @@ export function readSlot(buf, off) {
   const added = readVarint(buf, itemId.next);
   const removed = readVarint(buf, added.next);
   if (added.value !== 0 || removed.value !== 0) {
-    throw new RecipeParseError(`Slot 带组件（added ${added.value} / removed ${removed.value}）：组件载荷按类型各异，无法盲读`, off);
+    // 组件槽位：委托给 slot-components 的解释器（minecraft-data 的组件编解码表）。
+    // 不可用时保持旧的严格报错——半读的槽位比没有更糟。
+    try {
+      return readSlotWithComponents(buf, off);
+    } catch (err) {
+      throw new RecipeParseError(`Slot 带组件（added ${added.value} / removed ${removed.value}）且组件解析失败：${err.message}`, off);
+    }
   }
   // count 是产物数量（一根木头出 4 根木棍就靠它），join 必须保留
   return { id: itemId.value, count: itemCount.value, next: removed.next };
@@ -139,6 +146,18 @@ export function readOne(buf, cur, f, data) {
   if (f.kind === 'f32') {
     if (cur + 4 > buf.length) throw new RecipeParseError('f32 越界', cur);
     data[key] = buf.readFloatBE(cur); return cur + 4;  // Minecraft 网络数值字段是大端
+  }
+  if (f.kind === 'i32') {
+    // 少数模组序列化器直接写 int（TF 的 dryingTime/uncrafting cost、scepter 耐久）
+    if (cur + 4 > buf.length) throw new RecipeParseError('i32 越界', cur);
+    data[key] = buf.readInt32BE(cur); return cur + 4;
+  }
+  if (f.kind === 'varints') {
+    // varint n × n 个 varint（TF no_template_smithing 的 additional_data 组件编号表）
+    const n = readVarint(buf, cur);
+    const list = []; let p = n.next;
+    for (let k = 0; k < n.value; k++) { const r = readVarint(buf, p); list.push(r.value); p = r.next; }
+    data[key] = list; return p;
   }
   if (f.kind === 'slot') {
     const r = readSlot(buf, cur); data[key] = { id: r.id, count: r.count }; return r.next;

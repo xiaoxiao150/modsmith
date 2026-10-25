@@ -1,0 +1,256 @@
+{
+  "_comment": "暮色森林 4.8.629 + Farmer's Delight 3.3.6（1.21.1 开发服）的 declare_recipes 自定义序列化器文法。TF 的 13 个类型：javap 字段表/StreamCodec composite 定形状（scepter 的隐藏 category、drying/uncrafting 的 i32、no_template_smithing 的组件编号表都是逐字节核对出来的），再对 210352 字节真实捕获整包验证（2134 条 100% 对齐）。23-26 沿用 FD 生产 sidesheet；编号是这台服务器的注册顺序（vanilla 0-22 之后 FD 23-26、TF 27-39），换 jar 组合会整体位移——位移了就重跑 calibrate 并用 discover 重新对号。",
+  "serializers": {
+    "23": {
+      "name": "farmersdelight:cooking",
+      "fields": [
+        {
+          "name": "group",
+          "kind": "string"
+        },
+        {
+          "name": "category",
+          "kind": "string"
+        },
+        {
+          "name": "ingredients",
+          "kind": "ingredients"
+        },
+        {
+          "name": "result",
+          "kind": "slot"
+        },
+        {
+          "name": "container",
+          "kind": "slot"
+        },
+        {
+          "name": "experience",
+          "kind": "f32"
+        },
+        {
+          "name": "cookTime",
+          "kind": "varint"
+        }
+      ]
+    },
+    "24": {
+      "name": "farmersdelight:cutting",
+      "fields": [
+        {
+          "name": "group",
+          "kind": "string"
+        },
+        {
+          "name": "ingredient",
+          "kind": "ingredient"
+        },
+        {
+          "name": "tool",
+          "kind": "ingredient"
+        },
+        {
+          "name": "results",
+          "kind": "list",
+          "item": [
+            {
+              "name": "result",
+              "kind": "slot"
+            },
+            {
+              "name": "chance",
+              "kind": "f32"
+            }
+          ]
+        },
+        {
+          "name": "sound",
+          "kind": "optional-identifier"
+        }
+      ]
+    },
+    "25": {
+      "name": "farmersdelight:food_serving",
+      "fields": [
+        {
+          "name": "category",
+          "kind": "varint"
+        }
+      ]
+    },
+    "26": {
+      "name": "farmersdelight:dough",
+      "fields": [
+        {
+          "name": "category",
+          "kind": "varint"
+        }
+      ]
+    },
+    "27": {
+      "name": "twilightforest:casket_repair_recipe",
+      "fields": [
+        {
+          "name": "category",
+          "kind": "varint"
+        }
+      ]
+    },
+    "28": {
+      "name": "twilightforest:emperors_cloth_recipe",
+      "fields": [
+        {
+          "name": "category",
+          "kind": "varint"
+        }
+      ]
+    },
+    "29": {
+      "name": "twilightforest:essence_repair_recipe",
+      "fields": [
+        {
+          "name": "category",
+          "kind": "varint"
+        }
+      ]
+    },
+    "30": {
+      "name": "twilightforest:magic_map_cloning_recipe",
+      "fields": [
+        {
+          "name": "category",
+          "kind": "varint"
+        }
+      ]
+    },
+    "31": {
+      "name": "twilightforest:maze_map_cloning_recipe",
+      "fields": [
+        {
+          "name": "category",
+          "kind": "varint"
+        }
+      ]
+    },
+    "32": {
+      "name": "twilightforest:moonworm_queen_repair_recipe",
+      "fields": [
+        {
+          "name": "category",
+          "kind": "varint"
+        }
+      ]
+    },
+    "33": {
+      "name": "twilightforest:scepter_repair",
+      "fields": [
+        {
+          "name": "scepter",
+          "kind": "varint"
+        },
+        {
+          "name": "repairItems",
+          "kind": "ingredients"
+        },
+        {
+          "name": "durability",
+          "kind": "i32"
+        },
+        {
+          "name": "category",
+          "kind": "varint"
+        }
+      ]
+    },
+    "34": {
+      "name": "twilightforest:uncrafting",
+      "fields": [
+        {
+          "name": "cost",
+          "kind": "i32"
+        },
+        {
+          "name": "input",
+          "kind": "ingredient"
+        },
+        {
+          "name": "count",
+          "kind": "i32"
+        },
+        {
+          "name": "gridWidth",
+          "kind": "varint"
+        },
+        {
+          "name": "gridHeight",
+          "kind": "varint"
+        },
+        {
+          "name": "grid",
+          "kind": "grid"
+        }
+      ]
+    },
+    "35": {
+      "name": "twilightforest:travellers_gear_modifier_shapeless_recipe",
+      "fields": [
+        {
+          "name": "recipe",
+          "kind": "string"
+        }
+      ]
+    },
+    "36": {
+      "name": "twilightforest:travellers_gear_modifier_shaped_recipe",
+      "fields": [
+        {
+          "name": "recipe",
+          "kind": "string"
+        }
+      ]
+    },
+    "37": {
+      "name": "twilightforest:travellers_vest_gloves_merge_recipe",
+      "fields": [
+        {
+          "name": "category",
+          "kind": "varint"
+        }
+      ]
+    },
+    "38": {
+      "name": "twilightforest:no_template_smithing",
+      "fields": [
+        {
+          "name": "base",
+          "kind": "ingredient"
+        },
+        {
+          "name": "addition",
+          "kind": "ingredient"
+        },
+        {
+          "name": "additionalData",
+          "kind": "varints"
+        }
+      ]
+    },
+    "39": {
+      "name": "twilightforest:drying",
+      "fields": [
+        {
+          "name": "input",
+          "kind": "ingredient"
+        },
+        {
+          "name": "result",
+          "kind": "slot"
+        },
+        {
+          "name": "dryingTime",
+          "kind": "i32"
+        }
+      ]
+    }
+  }
+}

@@ -60,24 +60,35 @@ export default async function cmdRecipes(args, io) {
       for (const [n, i] of Object.entries(ids.items ?? {})) if (i === id) return n;
       return vanilla[id] ?? `#${id}`;
     };
+    const budget = Number(args.budget ?? 600000);
     const result = discoverSerializers(buf, {
       serializers,
       knownItemIds,
       maxItemId: Math.max(-1, ...knownItemIds),
-      budget: Number(args.budget ?? 600000),
+      budget,
       maxCandidates: Number(args['max-candidates'] ?? 5),
+      trace: process.env.MODSMITH_TRACE
+        ? (phase, info) => console.error(`  [trace] ${phase} ${JSON.stringify(info).slice(0, 120)}`)
+        : undefined,
     });
     if (!result.ok) {
-      io.fatal(`文法发现没走通整包（已解析段 ${result.segments.length}）：\n  ${result.notes.join('\n  ')}\n  候选文件不写——对不齐的发现比没有更危险。可加 --budget 放大搜索。`);
+      // 整包没走通不代表颗粒无收：已收集的候选照常落盘供人审（逐类型引导——
+      // 人确认一个就把它加进正式 sidesheet 重跑，十几个类型也能一个个啃下来）。
+      console.error(`  ! 整包没走通（已解析段 ${result.segments.length}）：`);
+      for (const n of result.notes) console.error(`    ! ${n}`);
+    } else {
+      console.error(`  ✓ 整包走通：${result.count} 条配方全解析（耗时预算 ${budget - result.budgetLeft}）`);
     }
-    console.error(`  ✓ 整包走通：${result.count} 条配方全解析（耗时预算 ${600000 - result.budgetLeft}）`);
     for (const d of result.discovered) {
       console.error(`  #${d.typeId} ${d.shape ?? '(盲搜)'} ×${d.occurrences}: ${d.fields.map((f) => f.kind).join(',')}`);
       console.error(`      字段名（形状推断，盲搜为 f0/f1 需人工改名）: ${d.fields.map((f) => f.name).join(', ')}`);
       const names = d.slotIds.slice(0, 5).map((id) => `${id}=${nameOf(id)}`);
       if (d.slotIds.length > 0) console.error(`      命中物品（前 5）: ${names.join(', ')}${d.slotIds.length > 5 ? ' …' : ''}`);
     }
-    for (const n of result.notes) console.error(`  ! ${n}`);
+    const candidateTypes = Object.keys(result.candidates).filter((k) => !result.discovered.some((d) => String(d.typeId) === k));
+    for (const k of candidateTypes) {
+      console.error(`  ? #${k} 未定（${result.candidates[k].length} 个候选）——见落盘文件的 _candidates 自行核对`);
+    }
     const outPath = String(args.out ?? sidecarPath.replace(/\.serializers\.json$/, '.serializers.discovered.json'));
     if (args.write === true) {
       writeFileSync(outPath, JSON.stringify(sidesheetFromDiscovery(result, { mod: manifest.mod }), null, 2) + '\n');
@@ -85,7 +96,7 @@ export default async function cmdRecipes(args, io) {
       console.error(`  下一步（人工）：核对每个 #id 的字段序与字段名 → 抄进 ${sidecarPath} 并填 name → 重跑 modsmith recipes --write`);
     } else {
       console.error(`  试运行：不写盘。确认输出后加 --write 落盘到 ${outPath}`);
-      console.log(JSON.stringify({ discovered: result.discovered.map((d) => ({ typeId: d.typeId, shape: d.shape, occurrences: d.occurrences })) }, null, 2));
+      console.log(JSON.stringify({ ok: result.ok, discovered: result.discovered.map((d) => ({ typeId: d.typeId, shape: d.shape, occurrences: d.occurrences })), candidateTypes }, null, 2));
     }
     return;
   }
@@ -101,8 +112,13 @@ export default async function cmdRecipes(args, io) {
   const vanilla = vanillaItemTable(mcVersion);
   const { entries, unresolved } = joinRecipes(parsed.recipes, ids.items, vanilla);
   const ratio = entries.length / Math.max(1, parsed.recipes.length);
-  const unsupported = entries.filter((e) => e.unsupported).length;
-  console.error(`  翻译成功 ${entries.length}/${parsed.recipes.length}（${(ratio * 100).toFixed(1)}%）：可消费 ${entries.length - unsupported} 条，unsupported ${unsupported} 条（SimpleRecipeSerializer，协议里就没有原料）`);
+  const unsupported = entries.filter((e) => e.unsupported);
+  const reasons = new Map();
+  for (const e of unsupported) reasons.set(e.unsupported, (reasons.get(e.unsupported) ?? 0) + 1);
+  console.error(`  翻译成功 ${entries.length}/${parsed.recipes.length}（${(ratio * 100).toFixed(1)}%）：可消费 ${entries.length - unsupported.length} 条，unsupported ${unsupported.length} 条`);
+  for (const [reason, n] of [...reasons].sort((a, b) => b[1] - a[1]).slice(0, 4)) {
+    console.error(`    ${n} 条：${reason}`);
+  }
   for (const name of unresolved.slice(0, 6)) console.error(`    翻不出物品名：${name}`);
   if (ratio < threshold) {
     // 不写清单是对的（半真值比没有更糟），但"缺了哪几条"必须可查——否则 1594 掉成 900
