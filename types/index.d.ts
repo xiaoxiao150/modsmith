@@ -60,3 +60,38 @@ export function craftRecipeViews(manifest: object): CraftRecipeView[];
 
 /** vanilla 物品数字 id → 全名（minecraft-data 表）。 */
 export function vanillaItemTable(mcVersion?: string): Record<string, string>;
+
+/** 文法发现：未知序列化器的候选（discoverSerializers 的产物，永不自动生效）。 */
+export interface DiscoveredSerializer {
+  typeId: number;
+  fields: Array<{ name: string; kind: string; item?: Array<{ name: string; kind: string }> }>;
+  shape: string | null;
+  occurrences: number;
+  slotIds: number[];
+  packetValidated: boolean;
+}
+export interface DiscoveryResult {
+  ok: boolean;
+  count: number;
+  segments: Array<{ index: number; typeId: number; start: number; end: number; known: boolean; occurrences: number }>;
+  discovered: DiscoveredSerializer[];
+  candidates: Record<string, DiscoveredSerializer[]>;
+  notes: string[];
+  budgetLeft: number;
+}
+export function discoverSerializers(
+  buf: Buffer,
+  opts?: {
+    serializers?: Record<string, { name?: string; fields: Array<{ name: string; kind: string; item?: unknown }> }>;
+    knownItemIds?: Set<number>;
+    maxItemId?: number;
+    maxTypeId?: number;
+    budget?: number;
+    maxCandidates?: number;
+    trace?: (phase: string, info: unknown) => void;
+  },
+): DiscoveryResult;
+export function sidesheetFromDiscovery(
+  result: DiscoveryResult,
+  meta?: { mod?: string },
+): Record<string, unknown>;

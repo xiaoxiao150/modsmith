@@ -26,8 +26,8 @@ export class RecipeParseError extends Error {
   }
 }
 
-/** varint（LEB128，5 字节上限）。 */
-function readVarint(buf, off) {
+/** varint（LEB128，5 字节上限）。导出给 recipes-discover 的文法搜索复用。 */
+export function readVarint(buf, off) {
   let value = 0;
   let shift = 0;
   let i = off;
@@ -43,14 +43,14 @@ function readVarint(buf, off) {
 }
 
 /** string = varint 长度 + UTF-8。 */
-function readString(buf, off) {
+export function readString(buf, off) {
   const { value: len, next } = readVarint(buf, off);
   if (next + len > buf.length) throw new RecipeParseError(`string 长度 ${len} 越界`, off);
   return { value: buf.toString('utf8', next, next + len), next: next + len };
 }
 
 /** Slot（1.21.1）：itemCount=0 即空；非空读 itemId + 组件数（非零即中止——组件载荷按类型各异，无法盲跳）。 */
-function readSlot(buf, off) {
+export function readSlot(buf, off) {
   const itemCount = readVarint(buf, off);
   if (itemCount.value === 0) return { id: 0, count: 0, next: itemCount.next };
   const itemId = readVarint(buf, itemCount.next);
@@ -64,7 +64,7 @@ function readSlot(buf, off) {
 }
 
 /** ingredient = varint n × n 个 Slot，取非空槽的 itemId 列表。 */
-function readIngredient(buf, off) {
+export function readIngredient(buf, off) {
   const n = readVarint(buf, off);
   const items = [];
   let next = n.next;
@@ -123,8 +123,8 @@ export function vanillaNameOf(typeId) {
   return VANILLA_SERIALIZERS[typeId]?.name;
 }
 
-/** 读一个文法字段到 data，返回新的偏移。所有 kind 的唯一分发点。 */
-function readOne(buf, cur, f, data) {
+/** 读一个文法字段到 data，返回新的偏移。所有 kind 的唯一分发点。导出给 discover 的文法搜索。 */
+export function readOne(buf, cur, f, data) {
   const key = f.name ?? `f${Object.keys(data).length}`;
   if (f.kind === 'varint') {
     const r = readVarint(buf, cur); data[key] = r.value; return r.next;

@@ -15,6 +15,7 @@ import { validateManifest, hasErrors, describeIssues, parseManifest, statsOf } f
 import { checkServerMods, fingerprintDir } from './server-fingerprint.mjs';
 import { craftRecipeViews } from './recipes-view.mjs';
 import { vanillaItemTable } from './recipes-join.mjs';
+import { discoverSerializers, sidesheetFromDiscovery } from './recipes-discover.mjs';
 
 export { inspectJar, readSidecar, writeSidecar, sidecarTemplateFrom, writeManifest };
 
@@ -24,6 +25,7 @@ export {
   installModRegistry, installMineflayerFixes, loadModPack, setModsDir, listPacks,
   validateManifest, hasErrors, describeIssues, parseManifest, statsOf,
   checkServerMods, fingerprintDir, craftRecipeViews, vanillaItemTable,
+  discoverSerializers, sidesheetFromDiscovery,
 };
 
 export const VERSION = '0.3.0';

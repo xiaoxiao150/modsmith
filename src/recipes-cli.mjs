@@ -15,6 +15,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseDeclareRecipes } from './recipes.mjs';
 import { vanillaItemTable, joinRecipes } from './recipes-join.mjs';
+import { discoverSerializers, sidesheetFromDiscovery } from './recipes-discover.mjs';
 import { readManifest, writeManifest } from './manifest-io.mjs';
 
 /**
@@ -49,6 +50,46 @@ export default async function cmdRecipes(args, io) {
   }
 
   const buf = readFileSync(rawPath);
+
+  // --discover：不解清单，改跑未知序列化器的文法发现。产出永远是"待审候选"，
+  // 人核对后抄进正式 sidesheet 才生效（错名比未知更糟——机器不替人拍板）。
+  if (args.discover) {
+    const vanilla = vanillaItemTable(mcVersion);
+    const knownItemIds = new Set([...Object.keys(vanilla).map(Number), ...Object.values(ids.items ?? {})]);
+    const nameOf = (id) => {
+      for (const [n, i] of Object.entries(ids.items ?? {})) if (i === id) return n;
+      return vanilla[id] ?? `#${id}`;
+    };
+    const result = discoverSerializers(buf, {
+      serializers,
+      knownItemIds,
+      maxItemId: Math.max(-1, ...knownItemIds),
+      budget: Number(args.budget ?? 600000),
+      maxCandidates: Number(args['max-candidates'] ?? 5),
+    });
+    if (!result.ok) {
+      io.fatal(`文法发现没走通整包（已解析段 ${result.segments.length}）：\n  ${result.notes.join('\n  ')}\n  候选文件不写——对不齐的发现比没有更危险。可加 --budget 放大搜索。`);
+    }
+    console.error(`  ✓ 整包走通：${result.count} 条配方全解析（耗时预算 ${600000 - result.budgetLeft}）`);
+    for (const d of result.discovered) {
+      console.error(`  #${d.typeId} ${d.shape ?? '(盲搜)'} ×${d.occurrences}: ${d.fields.map((f) => f.kind).join(',')}`);
+      console.error(`      字段名（形状推断，盲搜为 f0/f1 需人工改名）: ${d.fields.map((f) => f.name).join(', ')}`);
+      const names = d.slotIds.slice(0, 5).map((id) => `${id}=${nameOf(id)}`);
+      if (d.slotIds.length > 0) console.error(`      命中物品（前 5）: ${names.join(', ')}${d.slotIds.length > 5 ? ' …' : ''}`);
+    }
+    for (const n of result.notes) console.error(`  ! ${n}`);
+    const outPath = String(args.out ?? sidecarPath.replace(/\.serializers\.json$/, '.serializers.discovered.json'));
+    if (args.write === true) {
+      writeFileSync(outPath, JSON.stringify(sidesheetFromDiscovery(result, { mod: manifest.mod }), null, 2) + '\n');
+      console.error(`  ✓ 待审文法已写入 ${outPath}`);
+      console.error(`  下一步（人工）：核对每个 #id 的字段序与字段名 → 抄进 ${sidecarPath} 并填 name → 重跑 modsmith recipes --write`);
+    } else {
+      console.error(`  试运行：不写盘。确认输出后加 --write 落盘到 ${outPath}`);
+      console.log(JSON.stringify({ discovered: result.discovered.map((d) => ({ typeId: d.typeId, shape: d.shape, occurrences: d.occurrences })) }, null, 2));
+    }
+    return;
+  }
+
   let parsed;
   try {
     parsed = parseDeclareRecipes(buf, { serializers });
