@@ -70,6 +70,28 @@ const USAGE = `modsmith ${VERSION} — 把 Fabric mod jar 变成机器人能用�
       --serializers <file> 模组自定义序列化器文法（默认 sidesheets/<pack>.serializers.json）
       --write              真写回 manifest（默认试运行）
       --threshold <0..1>   成功率闸门，默认 0.95
+      --discover           不解析清单，改跑未知序列化器的文法发现：
+                           对 139KB 级捕获秒级找回自定义类型文法（FD 四个类型实测命中）。
+                           产出永远是待审候选（confirmed:false），人核对后抄进正式
+                           sidesheet 并填 name 才生效——机器不替人拍板。
+      --budget <n>         文法搜索的解析尝试预算，默认 600000
+      --max-candidates <n> 每个类型保留几个候选，默认 5
+      --out <file>         发现结果的落盘路径（--write 时用）
+
+  modsmith onboard <mod.jar> --pack <name> [选项]
+      新包接入一条龙：inspect → calibrate → probe → verify → recipes → sidecar。
+      前提：jar 已经装进服务器 mods 目录（onboard 绝不自动装）。
+      哪步失败就停在哪，修完重跑（配 --resume 跳过已有产物的步骤）。
+
+      --pack <name>          必填：包名（mods/ 下的文件名，不带 .json）
+      --out <dir>            manifest/ids 目录，默认 ./mods
+      --resume               产物已存在的步骤直接跳过
+      --skip <id,id,…>       显式跳过某些步骤（inspect/calibrate/probe/verify/recipes/sidecar）
+      --plan                 只打印步骤清单，不执行
+      --dry-recipes          recipes 步骤不写回 manifest（默认写，95% 闸门兜底）
+      --no-build             sidecar 只出配置不编译（也就不写回命令）
+      其余 --host/--port/--rcon-port/--rcon-password/--server-mods/--mc-version/--x/y/z
+      与 calibrate 相同，转给需要服务器的步骤。
 
   modsmith merge <ids1.json> <ids2.json> ... --out <file>
       把分阶段量出来的 ids 合并（后者只覆盖它有数据的部分）。
@@ -237,6 +259,59 @@ async function cmdLearn(args) {
   console.log(manifestPath);
 }
 
+async function cmdOnboard(args) {
+  const jar = args._[1];
+  if (!jar) fatal('onboard 要给一个 jar 路径');
+  if (!existsSync(jar)) fatal(`找不到 ${jar}`);
+  if (typeof args.pack !== 'string') fatal('onboard 要 --pack <name>（包名，mods/ 下的文件名，不带 .json）');
+  const pack = args.pack;
+  const modsDir = resolve(typeof args.out === 'string' ? args.out : './mods');
+  const { onboardPlan } = await import('../src/onboard.mjs');
+
+  const manifestPath = join(modsDir, `${pack}.json`);
+  const idsPath = join(modsDir, `${pack}-ids.json`);
+  let hasServerRecipes = false;
+  if (existsSync(manifestPath)) {
+    try {
+      const m = JSON.parse(readFileSync(manifestPath, 'utf8'));
+      hasServerRecipes = (m.recipes ?? []).some((r) => r?._source === 'server');
+    } catch { /* 清单坏了就当没有，inspect 会重写 */ }
+  }
+  const plan = onboardPlan({
+    jar,
+    pack,
+    modsDir,
+    server: {
+      host: args.host, port: args.port, rconPort: args['rcon-port'],
+      rconPassword: args['rcon-password'], mcVersion: args['mc-version'],
+      serverMods: args['server-mods'], x: args.x, y: args.y, z: args.z,
+    },
+    skip: typeof args.skip === 'string' ? args.skip.split(',').map((s) => s.trim()).filter(Boolean) : [],
+    resume: args.resume === true,
+    artifacts: { manifest: existsSync(manifestPath), ids: existsSync(idsPath), serverRecipes: hasServerRecipes },
+    dryRecipes: args['dry-recipes'] === true,
+    noBuild: args['no-build'] === true,
+  });
+
+  if (args.plan === true) {
+    for (const s of plan.steps) {
+      console.log(`${s.done ? '✓' : s.blocked ? '✗' : '·'} ${s.id.padEnd(9)} ${s.title}${s.reason ? `  (${s.reason})` : ''}`);
+    }
+    console.log(`manifest: ${plan.manifestPath}\nids:      ${plan.idsPath}`);
+    return;
+  }
+
+  for (const s of plan.steps) {
+    if (s.done) { console.error(`✓ ${s.id}：产物已存在，跳过（--resume）`); continue; }
+    if (s.blocked) fatal(`${s.id} 无法执行：${s.reason}`);
+    if (s.reason) console.error(`  - ${s.id}：${s.reason}`);
+    console.error(`▶ ${s.id}：${s.title}`);
+    const mod = await import(`../src/${s.id}.mjs`);
+    await mod.default(parseArgs(s.argv.slice(1)), { fatal });
+  }
+  console.error('✓ onboard 全部步骤完成。侧车 jar 与站点配置在 sidecars/ 下——装不装进服务器由你决定（绝不自动装）。');
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   if (argv.length === 0 || argv[0] === '--help' || argv[0] === '-h') {
@@ -269,6 +344,9 @@ async function main() {
     case 'sidecar': {
       const mod = await import('../src/sidecar.mjs');
       return mod.default(args, { fatal });
+    }
+    case 'onboard': {
+      return cmdOnboard(args);
     }
     default:
       fatal(`不认识的命令：${cmd}（用 --help 看用法）`);
