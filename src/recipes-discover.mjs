@@ -51,9 +51,17 @@ export const SHAPES = [
 ];
 
 /** 盲搜的字段序列按这个顺序枚举（先高频后低频；f32/bool 容易对齐出假阳性，放后面）。 */
-const BLIND_KINDS = ['string', 'varint', 'ingredient', 'slot', 'f32', 'ingredients', 'optional-identifier', 'optional-ingredient', 'bool'];
+const BLIND_KINDS = ['string', 'varint', 'ingredient', 'slot', 'f32', 'i32', 'ingredients', 'optional-identifier', 'optional-ingredient', 'bool', 'varints'];
 
-const printName = (s) => /^[\x20-\x7e]{0,256}$/.test(s);
+const printName = (s) => /^[\x09\x0a\x0d\x20-\x7e]{0,65535}$/.test(s);
+
+/**
+ * 配方名必须是资源名（`namespace:path`）。这是整包对齐最有力的一个判据：
+ * 错位后从 payload 里读出来的"名字"几乎总有引号/花括号/非 ASCII，形状上一眼就否掉。
+ * 只放宽到 200 字符（真实配方名远短于此）。
+ */
+const RECIPE_NAME = /^[a-z0-9_.-]+:[a-z0-9_./-]+$/;
+const isRecipeName = (s) => s.length >= 3 && s.length <= 200 && RECIPE_NAME.test(s);
 
 /** 有锚点的字段 = 能读出物品/文本的（varint/bool/f32 对任何字节都凑得齐，不算）。 */
 const isAnchor = (f) => ['slot', 'ingredient', 'ingredients', 'string'].includes(f.kind)
@@ -66,6 +74,7 @@ function plausibleValue(f, v, ctx) {
     return v.id === 0 || (v.id >= 1 && v.id <= ctx.maxPlausibleItemId);
   }
   if (f.kind === 'f32') return Number.isFinite(v);
+  if (f.kind === 'i32' || f.kind === 'varint' || f.kind === 'varints') return true;
   if (f.kind === 'string') return printName(v);
   if (f.kind === 'ingredient' || f.kind === 'optional-ingredient') {
     return (v ?? []).every((id) => id >= 1 && id <= ctx.maxPlausibleItemId);
@@ -98,14 +107,14 @@ function parsePayload(buf, off, fields, ctx) {
   return { next: cur, data };
 }
 
-/** 读「下一条配方的头」：string 名 + varint 编号。名字要像配方 id。 */
+/** 读「下一条配方的头」：string 名 + varint 编号。名字必须是资源名形状（错位后几乎不可能碰到）。 */
 function tryHeader(buf, off, ctx) {
   try {
     const name = readString(buf, off);
-    if (!printName(name.value) || name.value.length < 3) return null;
+    if (!isRecipeName(name.value)) return null;
     const typeId = readVarint(buf, name.next);
     if (typeId.value > ctx.maxTypeId) return null;
-    return { typeId: typeId.value, payloadStart: typeId.next };
+    return { name: name.value, typeId: typeId.value, payloadStart: typeId.next };
   } catch {
     return null;
   }
@@ -236,16 +245,21 @@ export function discoverSerializers(buf, opts = {}) {
     list.sort((a, b) => b.score - a.score);
     if (list.length > ctx.maxCandidates) list.length = ctx.maxCandidates;
   };
-  const walk = (index, cursor, solved) => {
+  const walk = (index, cursor, solved, seen) => {
+    const mark = segments.length;
+    /** 失败即回滚本层的 segments（segments 只保留当前这条路径，回执里才是"真解析过的段"）。 */
+    const fail = (msg) => { if (msg) notes.push(msg); segments.length = mark; return false; };
     ctx.trace?.('walk', { index, cursor, budget: ctx.budget });
-    if (ctx.budget <= 0) { notes.push('解析尝试预算耗尽——文法空间没搜完，结果不完整'); return false; }
+    if (ctx.budget <= 0) return fail('解析尝试预算耗尽——文法空间没搜完，结果不完整');
     if (index === count.value) {
       if (cursor === buf.length) return true;
-      notes.push(`第 ${count.value} 条后还剩 ${buf.length - cursor} 字节——条数或某段文法不对`);
-      return false;
+      return fail(`第 ${count.value} 条后还剩 ${buf.length - cursor} 字节——条数或某段文法不对`);
     }
     const header = tryHeader(buf, cursor, ctx);
-    if (!header) { notes.push(`第 ${index} 条配方头读不出（@${cursor}）——前一段文法不对`); return false; }
+    if (!header) return fail(`第 ${index} 条配方头读不出（@${cursor}）——前一段文法不对`);
+    // 配方名在注册表里唯一：当前路径上重复 = 前一段把游标推进了 payload 里
+    if (seen.has(header.name)) return fail(`第 ${index} 条配方名重复（${header.name}）——前一段错位`);
+    seen.add(header.name);
     const grammar = VANILLA_SERIALIZERS[header.typeId]
       ?? solved[header.typeId]
       ?? (known[String(header.typeId)]
@@ -253,28 +267,40 @@ export function discoverSerializers(buf, opts = {}) {
         : null);
     if (grammar) {
       const r = parsePayload(buf, header.payloadStart, grammar.fields, ctx);
-      if (!r) { notes.push(`第 ${index} 条（#${header.typeId}）按已知文法对不齐 @${header.payloadStart}`); return false; }
+      if (!r) { seen.delete(header.name); return fail(`第 ${index} 条（#${header.typeId}）按已知文法对不齐 @${header.payloadStart}`); }
       segments.push({ index, typeId: header.typeId, start: cursor, end: r.next, known: true, occurrences: 1 });
       ctx.trace?.('known', { index, typeId: header.typeId, budget: ctx.budget });
-      return walk(index + 1, r.next, solved);
+      if (walk(index + 1, r.next, solved, seen)) return true;
+      seen.delete(header.name);
+      return fail();
     }
     // 未知类型：先把「能吃完这一段」的候选收齐（评分排序），再按序做整包验证——
     // 不能首个成功就收工：纯 varint 的退化文法对任何字节都凑得齐，会抢在真文法前面。
     ctx.trace?.('unknown-run', { index, typeId: header.typeId, budget: ctx.budget });
     const runs = [];
+    let shapeHits = 0;
     for (const cand of candidateGrammars(ctx)) {
       if (ctx.budget <= 0) break;
+      // 形状库命中就不再盲搜：13 个形状覆盖了已知的序列化器家族，盲搜只该是兜底。
+      // 不设这条，一个 1 次出现的类型就要过几十万个字段序列（真实 TF 包上实测 8 分钟）。
+      if (cand.shape === null && shapeHits > 0) {
+        ctx.trace?.('blind-skip', { typeId: header.typeId, budget: ctx.budget, shapes: shapeHits });
+        break;
+      }
       // 剪枝必须在 tryRun 之前：失败候选 continue 摸不到后面的 break，
       // 盲搜空间有几百万个，会把预算烧光（真实 FD 包上实测）。
-      // 两个停止条件：已有命中已知物品的候选；或候选位已满（盲搜继续只会是垃圾）。
+      // 停止条件：候选位已满，或已收到两个「命中已知物品且非退化」的强候选——
+      // 留两个是为了把 f32/i32 这类线上同形、语义不同的备选都摆给人看。
       if (cand.shape === null
-        && (runs.length >= ctx.maxCandidates || runs.some((x) => x.entry.score > 0 && !x.entry.degenerate))) {
+        && (runs.length >= ctx.maxCandidates
+          || runs.filter((x) => x.entry.score > 0 && !x.entry.degenerate).length >= 2)) {
         ctx.trace?.('blind-stop', { typeId: header.typeId, budget: ctx.budget, runs: runs.length });
         break;
       }
       const run = tryRun(buf, header.payloadStart, header.typeId, cand, ctx);
       ctx.budget = Math.max(0, ctx.budget - 1);
       if (!run) continue;
+      if (cand.shape !== null) shapeHits += 1;
       const degenerate = isDegenerate(cand.fields);
       const entry = {
         fields: cand.fields,
@@ -289,15 +315,15 @@ export function discoverSerializers(buf, opts = {}) {
       if (runs.length < ctx.maxCandidates) runs.push({ cand, run, entry });
     }
     if (runs.length === 0) {
-      notes.push(`#${header.typeId} 搜不到任何能对齐的文法（预算 ${ctx.budget <= 0 ? '耗尽' : '未耗尽'}）`);
-      return false;
+      seen.delete(header.name);
+      return fail(`#${header.typeId} 搜不到任何能对齐的文法（预算 ${ctx.budget <= 0 ? '耗尽' : '未耗尽'}）`);
     }
     if (runs.every((x) => x.entry.degenerate)) {
       notes.push(`#${header.typeId} 只有不含物品/字符串字段的退化文法能对齐——多半是巧合，人审时先怀疑`);
     }
     runs.sort((a, b) => b.entry.score - a.entry.score || (a.entry.degenerate ? 1 : 0) - (b.entry.degenerate ? 1 : 0));
     for (const { cand, run } of runs) {
-      if (walk(index + run.occurrences, run.end, { ...solved, [header.typeId]: cand })) {
+      if (walk(index + run.occurrences, run.end, { ...solved, [header.typeId]: cand }, seen)) {
         segments.push({
           index, typeId: header.typeId, start: cursor, end: run.end,
           known: false, occurrences: run.occurrences, runStart: header.payloadStart,
@@ -315,11 +341,11 @@ export function discoverSerializers(buf, opts = {}) {
         return true;
       }
     }
-    notes.push(`#${header.typeId} 的候选都能吃完这段，但整包走不通——多半是别的未知类型还没解出来`);
-    return false;
+    seen.delete(header.name);
+    return fail(`#${header.typeId} 的候选都能吃完这段，但整包走不通——多半是别的未知类型还没解出来`);
   };
 
-  const ok = walk(0, count.next, {});
+  const ok = walk(0, count.next, {}, new Set());
   if (!ok) {
     discovered.length = 0;
   } else {

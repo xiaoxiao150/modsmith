@@ -172,3 +172,55 @@ test('同类型两次出现之间夹别的类型：非连续段照常解析（si
   const d = result.discovered.find((x) => x.typeId === 30);
   assert.ok(d, '两段不连续的未知类型也应各自被发现');
 });
+
+test('配方头必须是资源名：payload 里的 JSON 片段不会被当成配方名', () => {
+  // 真实事故：TF 的改装配方 payload 是一整段 JSON 字符串，错位后从里面读出的
+  // "名字"（含引号/花括号）曾让 DFS 走进死胡同、烧光预算。名字形状是硬判据。
+  const buf = frame([
+    { name: 'test:a', typeId: 15, payload: smeltingPayload({}) },
+    { name: 'stained_glass_pane"}},"pattern":["M M","YGY"]', typeId: 15, payload: smeltingPayload({ ids: [101] }) },
+  ]);
+  const result = discoverSerializers(buf, OPTS);
+  assert.equal(result.ok, false, '非法配方名必须让整包走不通');
+  assert.ok(result.notes.some((n) => n.includes('头读不出')), `notes 要指出头读不出：${result.notes.join('；')}`);
+});
+
+test('配方名在当前路径上重复 = 前一段错位，直接否掉', () => {
+  const buf = frame([
+    { name: 'test:dup', typeId: 15, payload: smeltingPayload({}) },
+    { name: 'test:dup', typeId: 15, payload: smeltingPayload({ ids: [101] }) },
+  ]);
+  const result = discoverSerializers(buf, OPTS);
+  assert.equal(result.ok, false);
+  assert.ok(result.notes.some((n) => n.includes('重复')), `notes 要指出重复：${result.notes.join('；')}`);
+});
+
+test('盲搜能发现 i32 / varints 字段（TF 的 drying 与 no_template_smithing 形状）', () => {
+  const wi32 = (v) => { const b = Buffer.alloc(4); b.writeInt32BE(v, 0); return b; };
+  const drying = Buffer.concat([wing([100]), wslot(110), wi32(7200)]);
+  const smithing = Buffer.concat([wing([101]), wing([102]), wv(2), wv(4), wv(7)]);
+  const buf = frame([
+    { name: 'testmod:drying/a', typeId: 40, payload: drying },
+    { name: 'testmod:drying/b', typeId: 40, payload: Buffer.concat([wing([102]), wslot(111), wi32(6000)]) },
+    { name: 'testmod:smithing/a', typeId: 41, payload: smithing },
+  ]);
+  const result = discoverSerializers(buf, { ...OPTS, budget: 200000 });
+  assert.equal(result.ok, true, result.notes.join('；'));
+
+  // 线上 f32 与 i32 同形（都吃 4 字节）：备选必须都列出来，让人审挑语义对的那个。
+  const kinds40 = (result.candidates[40] ?? []).map((c) => c.fields.map((f) => f.kind).join(','));
+  assert.ok(kinds40.includes('list,slot,f32') || kinds40.some((k) => k.endsWith('f32')), `应保留 f32 候选：${kinds40}`);
+  assert.ok(kinds40.some((k) => k.endsWith('i32')), `应保留 i32 候选：${kinds40}`);
+  const i32Fields = result.candidates[40].find((c) => c.fields.at(-1).kind === 'i32').fields;
+
+  const kinds41 = (result.candidates[41] ?? []).map((c) => c.fields.map((f) => f.kind).join(','));
+  assert.ok(kinds41.some((k) => k.endsWith('varints')), `应保留 varints 候选：${kinds41}`);
+  const varintsFields = result.candidates[41].find((c) => c.fields.at(-1).kind === 'varints').fields;
+
+  const parsed = parseDeclareRecipes(buf, {
+    serializers: { 40: { name: 'testmod:drying', fields: i32Fields }, 41: { name: 'testmod:smithing', fields: varintsFields } },
+  });
+  assert.equal(parsed.recipes[0].data[i32Fields.at(-1).name], 7200);
+  assert.equal(parsed.recipes[1].data[i32Fields.at(-1).name], 6000);
+  assert.deepEqual(parsed.recipes[2].data[varintsFields.at(-1).name], [4, 7]);
+});
