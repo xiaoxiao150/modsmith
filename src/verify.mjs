@@ -11,7 +11,7 @@
 import mineflayer from 'mineflayer';
 import { Vec3 } from 'vec3';
 import { readManifest, readIds } from './manifest-io.mjs';
-import { installModRegistry, installMineflayerFixes, loadModPack, setModsDir } from './cortico-bridge.mjs';
+import { installModRegistry, MEASURE_DROPS, installMineflayerFixes, loadModPack, setModsDir } from './cortico-bridge.mjs';
 import { sampleOf } from './calibrate-core.mjs';
 import { checkServerMods } from './server-fingerprint.mjs';
 import { makeRcon } from './rcon.mjs';
@@ -64,7 +64,7 @@ export default async function cmdVerify(args, io) {
   const cmd = await makeRcon(host, rconPort, rconPassword);
   const bot = mineflayer.createBot({ host, port, username, version: mcVersion, auth: 'offline' });
   installModRegistry(bot, pack);
-  installMineflayerFixes(bot);
+  installMineflayerFixes(bot, { extraDrop: MEASURE_DROPS });
 
   await cmd(`forceload add ${bx - 8} ${bz - 8} ${bx + 8} ${bz + 8}`);
   await cmd(`fill ${bx - 4} ${by - 1} ${bz - 4} ${bx + 4} ${by - 1} ${bz + 4} minecraft:stone`);

@@ -13,7 +13,7 @@
 import mineflayer from 'mineflayer';
 import { Vec3 } from 'vec3';
 import { readManifest } from './manifest-io.mjs';
-import { installModRegistry, installMineflayerFixes, loadModPack, setModsDir } from './cortico-bridge.mjs';
+import { installModRegistry, MEASURE_DROPS, installMineflayerFixes, loadModPack, setModsDir } from './cortico-bridge.mjs';
 import { applyProbe, stationMatches } from './manifest-probe.mjs';
 import { checkServerMods } from './server-fingerprint.mjs';
 import { makeRcon } from './rcon.mjs';
@@ -81,7 +81,7 @@ export async function openProbeSession(opts) {
   const cmd = await makeRcon(host, rconPort, rconPassword);
   const bot = mineflayer.createBot({ host, port, username, version: mcVersion, auth: 'offline' });
   if (pack) installModRegistry(bot, pack);
-  bot.loadPlugin((b) => installMineflayerFixes(b));
+  bot.loadPlugin((b) => installMineflayerFixes(b, { extraDrop: MEASURE_DROPS }));
 
   await cmd(`forceload add ${bx - 8} ${bz - 8} ${bx + 8} ${bz + 8}`);
   await cmd(`fill ${bx - 6} ${by - 1} ${bz - 6} ${bx + 6} ${by - 1} ${bz + 6} minecraft:stone`);

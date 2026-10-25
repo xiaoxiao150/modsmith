@@ -26,6 +26,11 @@ export function makeRcon(host, port, password) {
     let buf = Buffer.alloc(0);
     let id = 0;
     const waiters = [];
+    const fail = (err) => {
+      // resolve 之后的 reject 是空操作；真正的清理是把所有挂着的 cmd 等待者全部打断，
+      // 否则一个断连就让测量流程无声挂死（TF 实跑踩过）。
+      for (const w of waiters.splice(0)) w(null, err);
+    };
     const send = (type, body) => {
       id += 1;
       s.write(frameOf(id, type, body));
@@ -40,13 +45,18 @@ export function makeRcon(host, port, password) {
         waiters.shift()?.(body.subarray(8, body.length - 2).toString('utf8'));
       }
     });
-    s.on('error', reject);
-    s.on('close', () => reject(new Error('RCON 连接断了')));
+    s.on('error', (err) => fail(err));
+    s.on('close', () => fail(new Error('RCON 连接断了')));
     s.on('connect', () => {
       send(3, password);
-      waiters.push(() => resolve((cmd) => new Promise((res) => {
+      waiters.push(() => resolve((cmd) => new Promise((res, rej) => {
+        const timer = setTimeout(() => rej(new Error(`RCON 命令 15s 无响应：${cmd.slice(0, 60)}`)), 15000);
         send(2, cmd);
-        waiters.push(res);
+        waiters.push((value, err) => {
+          clearTimeout(timer);
+          if (err) rej(err);
+          else res(value);
+        });
       })));
     });
   });

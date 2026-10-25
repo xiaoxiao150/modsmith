@@ -20,7 +20,7 @@ import { readManifest } from './manifest-io.mjs';
 import { writeIds } from './manifest-io.mjs';
 import { computeSuspects, dedupeStateIds, dedupReport, sampleOf } from './calibrate-core.mjs';
 import { checkServerMods, fingerprintDir } from './server-fingerprint.mjs';
-import { installMineflayerFixes, installModRegistry, setModsDir } from './cortico-bridge.mjs';
+import { MEASURE_DROPS, installMineflayerFixes, installModRegistry, setModsDir } from './cortico-bridge.mjs';
 import { makeRcon } from './rcon.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -50,9 +50,9 @@ export default async function cmdCalibrate(args, io) {
   const rconPassword = String(args['rcon-password'] ?? '');
   const mcVersion = String(args['mc-version'] ?? '1.21.1');
   const username = String(args.username ?? 'Calibrator');
-  const bx = Number(args.x ?? 400);
+  let bx = Number(args.x ?? 400);
   const by = Number(args.y ?? 200);
-  const bz = Number(args.z ?? 400);
+  let bz = Number(args.z ?? 400);
   const outPath = String(args.out ?? args.ids ?? manifestPath.replace(/\.json$/, '-ids.json'));
   if (typeof args['mods-dir'] === 'string') setModsDir(args['mods-dir']);
 
@@ -101,7 +101,7 @@ export default async function cmdCalibrate(args, io) {
   await cmd(`fill ${bx - 1} ${by - 1} ${bz - 1} ${bx + 1} ${by - 1} ${bz + 1} minecraft:stone`);
   await cmd(`fill ${bx - 1} ${by} ${bz - 1} ${bx + 1} ${by + 3} ${bz + 1} minecraft:air`);
 
-  const at = new Vec3(bx, by, bz);
+  let at = new Vec3(bx, by, bz);
 
   let blocks = {};
   const items = {};
@@ -154,7 +154,7 @@ export default async function cmdCalibrate(args, io) {
     // 注入时的 `physicsEnabled ?? true` 覆盖（踩过），而注入方块没有物理形状，
     // 物理 tick 一碰到就炸 prismarine-physics 的 block.shapes
     const checkBot = mineflayer.createBot({ host, port, username: `${username}Check`, version: mcVersion, auth: 'offline', physicsEnabled: false });
-    installMineflayerFixes(checkBot);
+    installMineflayerFixes(checkBot, { extraDrop: MEASURE_DROPS });
     try {
       await new Promise((res, rej) => { checkBot.once('spawn', res); checkBot.once('error', rej); });
       // bot 只收自己视距内的区块；出生点看不见测试区，blockAt 全是空——先 tp 过去
@@ -183,11 +183,22 @@ export default async function cmdCalibrate(args, io) {
   }
 
   bot = mineflayer.createBot({ host, port, username, version: mcVersion, auth: 'offline' });
-  installMineflayerFixes(bot);
-  await cmd(`tp ${username} ${bx + 0.5} ${by} ${bz + 0.5}`);
+  installMineflayerFixes(bot, { extraDrop: MEASURE_DROPS });
+  // tp 必须在 spawn 之后：实体还没上服时 RCON 的 tp 会静默失败，bot 留在世界出生点
+  // （TF 实跑淹死在那儿），测量对着两百格外空气空转。
   await new Promise((res, rej) => { bot.once('spawn', res); bot.once('error', rej); });
+  await cmd(`tp ${username} ${bx + 0.5} ${by} ${bz + 0.5}`);
+  // 创造模式：量测要几十分钟，生存模式的机器人会淹死/摔死/被 mod 怪打死（TF 实跑：淹死）
+  await cmd(`gamemode creative ${username}`);
   await sleep(1200);
   await cmd(`tp ${username} ${bx + 0.5} ${by} ${bz + 0.5}`);
+  await sleep(800);
+  // 验收：bot 必须真在测试点旁。对不上就大声停——对空气空转两小时比失败更糟。
+  const spot = new Vec3(bx + 0.5, by + 0.5, bz + 0.5);
+  const dist = bot.entity ? bot.entity.position.distanceTo(spot) : Infinity;
+  if (dist > 32) {
+    throw new Error(`机器人没到测试点（距它还有 ${Math.round(dist)} 格）——tp 没生效，测量会全空转。先检查服务器是否 allow-rcon 与实体生成`);
+  }
 
   const read = () => {
     const b = bot.blockAt(at);
@@ -210,23 +221,48 @@ export default async function cmdCalibrate(args, io) {
     } catch { /* 落盘失败不影响继续跑 */ }
   };
   let n = 0;
+  const trace = process.env.MODSMITH_TRACE
+    ? (...a) => process.stderr.write(`  [trace] ${a.join(' ')}\n`)
+    : () => {};
+  // 带 BlockEntity 的 mod 方块，setblock 换它时服务端可能抛异常——从此这个格子上的
+  // 任何命令都炸（TF 实跑：Antibuilder 一放，格子永久报废，后面 500 个方块全空转）。
+  // 检测到就整体搬家：格子换新，floor 重铺，bot 跟过去，当前命令在新格子再试一次。
+  let relocations = 0;
+  const setblockAt = async (full) => {
+    let resp = await cmd(full);
+    if (/unexpected error/i.test(String(resp))) {
+      relocations += 1;
+      bx += 9; bz += 3;
+      at = new Vec3(bx, by, bz);
+      trace(`cursed cell -> relocate to ${bx},${by},${bz}（第 ${relocations} 次）`);
+      await cmd(`setblock ${bx} ${by - 1} ${bz} minecraft:stone`);
+      await cmd(`setblock ${bx} ${by} ${bz} minecraft:air`);
+      await cmd(`tp ${username} ${bx + 0.5} ${by} ${bz + 0.5}`);
+      await sleep(900);
+      resp = await cmd(full);
+    }
+    return resp;
+  };
   for (const [name, spec] of (itemsOnly ? [] : entries)) {
     n++;
     if (completeBlocks.has(name)) continue;
     const states = spec.states?.length ? spec.states : [{}];
     const list = [];
+    trace(`block ${n} ${name} states=${states.length}`);
     for (const st of states) {
       const arg = Object.keys(st).length > 0 ? `[${propsKey(st)}]` : '';
       let got = null;
       // 只有作物需要换支撑（要耕地）。非作物别动这一格 —— 每状态都重设一次会让
       // 方块触发一次更新，实测把整轮测量搞成了同一个残留 id。
       if (cropNames.has(name)) {
-        await cmd(`setblock ${bx} ${by - 1} ${bz} minecraft:farmland`);
+        await setblockAt(`setblock ${bx} ${by - 1} ${bz} minecraft:farmland`);
       }
       for (let attempt = 0; attempt < 3 && !got; attempt++) {
-        await cmd(`setblock ${bx} ${by} ${bz} minecraft:air`);
+        await setblockAt(`setblock ${bx} ${by} ${bz} minecraft:air`);
         await waitFor(read, (b) => b.stateId === 0, 900);
-        const resp = await cmd(`setblock ${bx} ${by} ${bz} ${name}${arg}`);
+        trace(`  ${n} ${name} attempt=${attempt} air-cleared`);
+        const resp = await setblockAt(`setblock ${bx} ${by} ${bz} ${name}${arg}`);
+        trace(`  ${n} ${name} set resp=${String(resp).slice(0, 40)}`);
         if (FAIL_RE.test(resp)) {
           if (attempt === 2) failed.push({ block: name, props: st, resp: resp.slice(0, 160) });
           continue;

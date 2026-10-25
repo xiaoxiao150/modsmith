@@ -229,10 +229,16 @@ export function installModRegistry(bot, pack) {
  *   b) 每次状态切换 mineflayer 会换掉 deserializer，所以得挂 `client.on('state')` 反复补
  *   c) metadata.size 必须等于本帧长度，否则流会错位
  */
-export function installMineflayerFixes(bot) {
+/** 测量机器人额外丢弃的包：protodef 在大 mod 上必炸、而测量流程又不依赖它们。 */
+export const MEASURE_DROPS = ['declare_commands', 'entity_metadata'];
+
+export function installMineflayerFixes(bot, opts = {}) {
   const client = bot._client;
   if (!client) return;
-  const drop = new Set(['declare_recipes']);
+  // extraDrop：测量类机器人（calibrate/probe/verify）不依赖命令树与实体元数据，
+  // 大 mod（暮色森林实测）在这两类包上会把 protodef 打出 PartialReadError，
+  // 不丢掉的话 error 事件会把 spawn 等待挂死。宿主不传这个选项，行为不变。
+  const drop = new Set(['declare_recipes', ...(opts.extraDrop ?? [])]);
   const seen = new Set();
 
   const patch = () => {
@@ -253,7 +259,9 @@ export function installMineflayerFixes(bot) {
         if (!drop.has(name)) throw err;
         if (!seen.has(name)) {
           seen.add(name);
-          console.warn(`丢弃无法解析的 ${name}（${buf.length} 字节）：模组改写了静态注册表${name === 'declare_recipes' ? '；原始包已留存，可用 modsmith recipes 解析' : ''}`);
+          console.warn(name === 'declare_recipes'
+            ? `丢弃无法解析的 ${name}（${buf.length} 字节）：模组改写了静态注册表；原始包已留存，可用 modsmith recipes 解析`
+            : `丢弃无法解析的 ${name}（${buf.length} 字节）：测量机器人不依赖它，丢掉保住读包循环`);
         }
         return {
           data: { name: '_modsmith_dropped', params: {} },
