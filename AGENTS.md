@@ -25,6 +25,10 @@
      中止不写盘，宁原样保留，别把好数据削掉
    - `probe` 只按实测回写容器表；"没测成"不等于"不能用"，保留原判
    - 站点声明与实测矛盾时只标 `needsReview`，**不改 kind**（那是 learn 的活）
+   - `recipes --discover` 的文法发现产物**永不自动生效**：只写
+     `sidesheets/<pack>.serializers.discovered.json`（`_confirmed:false`），人核对后抄进
+     正式 sidesheet 并补 name 才生效；多个文法都能对齐就全部列出（歧义不擅断），
+     纯 varint 的退化文法要标注可疑——它对任何字节都凑得齐
 
 4. **绝不自动安装生成的模组。**
    通用侧车 jar 留在 `sidecars/.build/build/libs/`、站点配置留在 `sidecars/<pack>/config/`，

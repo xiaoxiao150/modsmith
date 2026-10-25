@@ -35,6 +35,27 @@ modsmith learn    <manifest.json>     LLM 读清单 + wiki，产出站点定义�
 modsmith sidecar  <manifest.json>     给"服务端不开菜单"的站点生成侧车模组
 ```
 
+一条龙（六步按序串好，失败即停，`--resume` 断点续跑）：
+
+```
+modsmith onboard <mod.jar> --pack <name> \
+  --port 25565 --rcon-password yourpw --server-mods ./mods
+```
+
+接一个新 mod 时如果 `recipes` 因「未知序列化器编号」失败，那就是包里有自定义配方类型、
+wire 文法没写进 sidesheets——不用再拿 javap 人肉逆向了：
+
+```bash
+modsmith recipes <manifest.json> --discover            # 对捕获盲搜文法，打印候选
+modsmith recipes <manifest.json> --discover --write    # 候选落到
+                                                       # sidesheets/<pack>.serializers.discovered.json
+```
+
+发现产物的字段序/字段名来自形状库（FD 的 cooking/cutting 家族实测命中，语义字段名直接可用）；
+`name` 一列不在 wire 上，要从 mod 源码确认后填。**候选永不自动生效**——人核对后把确认的
+条目抄进 `<pack>.serializers.json` 才算数。多个文法都能对齐时全部列出（歧义不擅断），
+纯 varint 之类"对任何字节都凑得齐"的退化文法会明确标注可疑。
+
 ## 快速开始
 
 ```bash
