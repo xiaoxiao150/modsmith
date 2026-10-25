@@ -34,6 +34,16 @@ export function packNameOf(modId, version, opts = {}) {
 }
 
 /** 目录里有没有同一个 mod 的另一个包名（返回文件名，不含 .json）。 */
+/**
+ * `models/item/` 下的**变体模型**不是物品，别写进清单。
+ *
+ * 1.21 的护甲 trim 是模型变体（`ironwood_chestplate_gold_trim.json`），不是注册物品；
+ * 部分 mod 的巨人方块还有 `_base` / `_gui` 这种贴图模型。真实事故：暮色森林 983 个
+ * "物品"里 265 个是这类模型文件，`verify` 报"服务端不认这个物品"——清单里多一个
+ * 不存在的物品比少一个更糟（机器人照着给物品会一直失败）。
+ */
+export const isItemModelVariant = (name) => /_[a-z]+_trim$|_(base|gui|inventory|overlay|mask)$/.test(name);
+
 export function findExistingPack(dir, mod, selfName) {
   try {
     for (const f of readdirSync(dir)) {
@@ -153,7 +163,9 @@ export function inspectJar(jarPath, opts = {}) {
   const itemModels = new Set();
   for (const n of zip.names(`assets/${namespace}/models/item/`)) {
     if (!n.endsWith('.json')) continue;
-    itemModels.add(n.slice(`assets/${namespace}/models/item/`.length, -5));
+    const name = n.slice(`assets/${namespace}/models/item/`.length, -5);
+    if (isItemModelVariant(name)) continue;
+    itemModels.add(name);
   }
 
   // ---- 语言文件 ----

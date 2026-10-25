@@ -239,3 +239,21 @@ test('校验器：配方缺 id/type、shaped 没形状、result 缺 id 都报 er
   assert.ok(paths.includes('recipes[2].result'), paths.join(','));
   assert.ok(paths.includes('recipes[3].result.count'), paths.join(','));
 });
+
+// ---------- 物品模型变体不是物品 ----------
+
+test('isItemModelVariant：护甲 trim 与巨人方块 base/gui 模型不算物品', async () => {
+  const { isItemModelVariant } = await import('../src/inspect.mjs');
+  for (const name of [
+    'ironwood_chestplate_gold_trim',
+    'arctic_boots_netherite_trim',
+    'giant_block_base',
+    'giant_block_gui',
+    'giant_log_separate_base',
+  ]) {
+    assert.equal(isItemModelVariant(name), true, `${name} 是变体模型`);
+  }
+  for (const name of ['ironwood_chestplate', 'banister_item', 'giant_pickaxe', 'moonworm_queen', 'bowl']) {
+    assert.equal(isItemModelVariant(name), false, `${name} 是真物品`);
+  }
+});

@@ -92,14 +92,29 @@ export async function openProbeSession(opts) {
 
   const target = { x: bx + 1, y: by, z: bz };
 
+  /**
+   * 等目标格子读回指定方块名（最多 timeoutMs）。
+   * 固定 sleep 450ms 在模组方块上不够：真实事故是一半容器读回空名（客户端区块更新还没到），
+   * 被当成"没测成"。按名等待把读滞后和"真的放不下"区分开。
+   */
+  const waitForBlockName = async (pos, name, timeoutMs = 15000) => {
+    const deadline = Date.now() + timeoutMs;
+    let last = null;
+    for (;;) {
+      last = bot.blockAt(new Vec3(pos.x, pos.y, pos.z));
+      if (last?.name === name) return { block: last };
+      if (Date.now() > deadline) return { block: last };
+      await sleep(150);
+    }
+  };
+
   /** 放一个方块并右键，看它开不开窗。 */
   const probeOne = async (name) => {
     await cmd(`setblock ${target.x} ${target.y} ${target.z} ${name}`);
-    await sleep(450);
-    const block = bot.blockAt(new Vec3(target.x, target.y, target.z));
+    const { block } = await waitForBlockName(target, name);
     let result;
     if (!block) result = { placed: false, opened: false, error: 'blockAt 读不到（区块没到？）' };
-    else if (block.name !== name) result = { placed: false, opened: false, error: `放下去是 ${block.name}` };
+    else if (block.name !== name) result = { placed: false, opened: false, error: `放下去是 ${block.name || '(空名)'}` };
     else result = { placed: true, ...(await tryOpen(bot, block, openMs)) };
     await cmd(`setblock ${target.x} ${target.y} ${target.z} minecraft:air`);
     await sleep(350);
