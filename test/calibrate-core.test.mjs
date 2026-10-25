@@ -2,7 +2,7 @@
 //   node --test test/
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { computeSuspects, dedupeStateIds, dedupReport, sampleOf } from '../src/calibrate-core.mjs';
+import { computeSuspects, dedupeStateIds, dedupReport, dropVanillaStateIds, sampleOf } from '../src/calibrate-core.mjs';
 
 // ---------- sampleOf ----------
 
@@ -138,4 +138,28 @@ test('记账：跨方块与块内重复分开报，failed 条数与报告数字�
 
 test('记账：没有丢弃就没有行、没有 failed 条目', () => {
   assert.deepEqual(dedupReport([], []), { lines: [], failed: [] });
+});
+
+// ---------- dropVanillaStateIds ----------
+
+test('落在 vanilla 区间里的 stateId 一律剔除（mod 方块必然排在 vanilla 之后）', () => {
+  const blocks = {
+    'm:good': [{ props: {}, stateId: 30000 }, { props: { a: '1' }, stateId: 30001 }],
+    'm:mixed': [{ props: {}, stateId: 13344 }, { props: { a: '1' }, stateId: 31000 }],
+    'm:allbad': [{ props: {}, stateId: 46160 }].map((s) => ({ ...s, stateId: 900 })),
+  };
+  const { blocks: kept, dropped } = dropVanillaStateIds(blocks, 26683);
+  assert.deepEqual(Object.keys(kept).sort(), ['m:good', 'm:mixed']);
+  assert.deepEqual(kept['m:mixed'].map((s) => s.stateId), [31000]);
+  assert.equal(dropped.length, 2);
+  assert.ok(dropped.some((d) => d.block === 'm:allbad' && d.stateId === 900));
+  assert.ok(!('m:allbad' in kept), '整块都落在 vanilla 区间 → 整块丢弃（未知好过错名）');
+});
+
+test('没有落进 vanilla 区间的数据原样保留（不误伤）', () => {
+  const blocks = { 'm:a': [{ props: {}, stateId: 30000 }] };
+  const snapshot = JSON.stringify(blocks);
+  const { blocks: kept, dropped } = dropVanillaStateIds(blocks, 26683);
+  assert.equal(JSON.stringify(kept), snapshot);
+  assert.equal(dropped.length, 0);
 });

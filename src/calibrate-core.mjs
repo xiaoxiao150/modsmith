@@ -111,3 +111,31 @@ export function sampleOf(list, n) {
   for (let i = 0; i < n; i++) out.add(list[Math.floor((i * (list.length - 1)) / (n - 1))]);
   return [...out];
 }
+
+/**
+ * mod 方块的状态 id 必然排在 vanilla 之后（注册顺序：vanilla 先，mod 追加）。
+ * 落在 vanilla 区间里的 id 不可能是 mod 方块 —— 那是"读到了上一格的残留"的铁证。
+ *
+ * 真实事故：暮色森林一批方块用 --no-selfcheck 落盘，1812/2779 条状态 id 落在
+ * vanilla 区间（canopy_chest 记成了 13344 = 苔石楼梯），自检缺席时没有任何东西拦它。
+ * 这条不变量不需要连服务器，纯靠注册表就能把整批污染数据挡在写盘之前。
+ *
+ * @param {Record<string, Array<{props: object, stateId: number}>>} blocks
+ * @param {number} vanillaMaxState vanilla 最大状态 id（含）
+ * @returns {{blocks: object, dropped: Array<{block: string, stateId: number, vanilla: string|undefined}>}}
+ */
+export function dropVanillaStateIds(blocks, vanillaMaxState) {
+  const kept = {};
+  const dropped = [];
+  for (const [name, states] of Object.entries(blocks ?? {})) {
+    const ok = [];
+    const bad = [];
+    for (const s of states ?? []) {
+      if (typeof s?.stateId === 'number' && s.stateId > vanillaMaxState) ok.push(s);
+      else bad.push(s?.stateId);
+    }
+    if (ok.length > 0) kept[name] = ok;
+    for (const stateId of bad) dropped.push({ block: name, stateId });
+  }
+  return { blocks: kept, dropped };
+}

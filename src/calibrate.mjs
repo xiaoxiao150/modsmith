@@ -14,11 +14,12 @@
  *   b) 服务端方块更新常常晚一拍，单次读可能拿到上一格残留。对策：连读两次一致才认。
  */
 import mineflayer from 'mineflayer';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { Vec3 } from 'vec3';
 import { readManifest } from './manifest-io.mjs';
 import { writeIds } from './manifest-io.mjs';
-import { computeSuspects, dedupeStateIds, dedupReport, sampleOf } from './calibrate-core.mjs';
+import { computeSuspects, dedupeStateIds, dedupReport, dropVanillaStateIds, sampleOf } from './calibrate-core.mjs';
+import { vanillaBlockStateCeiling } from './recipes-join.mjs';
 import { checkServerMods, fingerprintDir } from './server-fingerprint.mjs';
 import { MEASURE_DROPS, installMineflayerFixes, installModRegistry, setModsDir } from './cortico-bridge.mjs';
 import { makeRcon } from './rcon.mjs';
@@ -55,6 +56,30 @@ export default async function cmdCalibrate(args, io) {
   let bz = Number(args.z ?? 400);
   const outPath = String(args.out ?? args.ids ?? manifestPath.replace(/\.json$/, '-ids.json'));
   if (typeof args['mods-dir'] === 'string') setModsDir(args['mods-dir']);
+
+  // mod 方块的状态 id 必然大于 vanilla 上限（注册顺序）。测量时用它判断"读到的是残留"。
+  let vanillaCeiling = 0;
+  try { vanillaCeiling = vanillaBlockStateCeiling(mcVersion); } catch { /* 没 minecraft-data 就跳过这道闸 */ }
+
+  // ---- 同一份 ids 只许一个 calibrate 在写 ----
+  //
+  // 真实事故：上一轮遗留的 calibrate（--no-selfcheck）没退，和新进程并发写同一个
+  // ids 文件，两边的测量互相覆盖，落盘的方块 id 成片是残留读数。锁文件按 ids 路径走。
+  const lockPath = `${outPath}.lock`;
+  {
+    let held = null;
+    try { held = JSON.parse(readFileSync(lockPath, 'utf8')); } catch { /* 没有锁最正常 */ }
+    if (held?.pid) {
+      let alive = false;
+      try { process.kill(held.pid, 0); alive = true; } catch { /* 进程没了 */ }
+      if (alive) {
+        io.fatal(`另一份 calibrate 正在写 ${outPath}（pid ${held.pid}，起于 ${held.startedAt}）：`
+          + '两个进程同时写会互相污染方块 id。等它结束或先停掉它');
+      }
+      process.stderr.write(`  发现陈旧锁（pid ${held.pid} 已不在），接管\n`);
+    }
+    writeFileSync(lockPath, JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }) + '\n');
+  }
 
   // ---- ids 过期防呆（连接前，还没动服务器状态）----
   //
@@ -159,20 +184,29 @@ export default async function cmdCalibrate(args, io) {
       await new Promise((res, rej) => { checkBot.once('spawn', res); checkBot.once('error', rej); });
       // bot 只收自己视距内的区块；出生点看不见测试区，blockAt 全是空——先 tp 过去
       await cmd(`tp ${username}Check ${bx + 0.5} ${by} ${bz + 0.5}`);
-      await sleep(1500);
+      // 新地形（没生成过的区块）要现生成——TF 地物一-heavy 就要十几秒，死等 1.5s 必空
+      await waitFor(() => checkBot.blockAt(new Vec3(bx, by, bz)), (b) => !!b, 180000);
+      await sleep(1200);
       installModRegistry(checkBot, { manifest, ids: { mod: prev.mod, version: prev.version, blocks: prev.blocks, items: prev.items ?? {} } });
       const mismatches = [];
       for (const name of sampleOf(Object.keys(prev.blocks), 3)) {
         const soil = cropNames.has(name) ? 'minecraft:farmland' : 'minecraft:stone';
         await cmd(`setblock ${bx} ${by - 1} ${bz} ${soil}`);
         await cmd(`setblock ${bx} ${by} ${bz} ${name}`);
-        await sleep(260);
-        const seen = checkBot.blockAt(at)?.name ?? '';
+        // 新地形在现生成，客户端拿到方块更新要等区块——死等 260ms 会误报"ids 过期"
+        const seen = (await waitFor(() => checkBot.blockAt(at), (b) => !!b && b.name === name, 30000))?.name ?? '';
         if (seen !== name) mismatches.push(`${name} 读回来是 ${seen || '(空)'}`);
       }
       if (mismatches.length > 0) {
-        // 抛错而不是 io.fatal：让 finally 里的清理跑掉，别把 forceload 留在服务器上
-        throw new Error(`复用的 ids 对不上这台服务器：${mismatches.join('；')}。ids 已过期或来自别的 jar 组合，删掉重跑全量 calibrate`);
+        // 指纹是身份的权威判据：ids 带着服务器 mods 指纹且对得上 → 同一台服，预检读不回
+        // 只是客户端区块/更新的怪癖（TF 新地形实测），警告后继续；指纹对不上才是真过期。
+        const verdict = checkServerMods(prev.serverMods, serverModsDir);
+        if (verdict.ok) {
+          process.stderr.write(`  ! 预检读不回 ${mismatches.length} 个样本（${mismatches[0]}），但 mods 指纹一致——视为客户端怪癖，继续\n`);
+        } else {
+          // 抛错而不是 io.fatal：让 finally 里的清理跑掉，别把 forceload 留在服务器上
+          throw new Error(`复用的 ids 对不上这台服务器：${mismatches.join('；')}。${verdict.lines[0] ?? '指纹不一致或缺失'}——ids 已过期或来自别的 jar 组合，删掉重跑全量 calibrate`);
+        }
       }
       // 最后一个样本留在格里会让主 bot 的物理 tick 踩到（vanilla 注册表没有它的形状）
       await cmd(`setblock ${bx} ${by} ${bz} minecraft:air`);
@@ -182,30 +216,41 @@ export default async function cmdCalibrate(args, io) {
     }
   }
 
-  bot = mineflayer.createBot({ host, port, username, version: mcVersion, auth: 'offline' });
-  installMineflayerFixes(bot, { extraDrop: MEASURE_DROPS });
-  // tp 必须在 spawn 之后：实体还没上服时 RCON 的 tp 会静默失败，bot 留在世界出生点
-  // （TF 实跑淹死在那儿），测量对着两百格外空气空转。
-  await new Promise((res, rej) => { bot.once('spawn', res); bot.once('error', rej); });
-  await cmd(`tp ${username} ${bx + 0.5} ${by} ${bz + 0.5}`);
-  // 创造模式：量测要几十分钟，生存模式的机器人会淹死/摔死/被 mod 怪打死（TF 实跑：淹死）
-  await cmd(`gamemode creative ${username}`);
-  await sleep(1200);
-  await cmd(`tp ${username} ${bx + 0.5} ${by} ${bz + 0.5}`);
-  await sleep(800);
+  // 建/重建测量机器人。自检阶段曾因上千次 tp 把连接刷断（TF 实测：Connection reset，
+  // 之后 blockAt 全空 → 366 个好方块差点被熔断器全判死）——断线就用它重连续跑。
+  let botAlive = true;
+  const makeMeasureBot = async () => {
+    bot = mineflayer.createBot({ host, port, username, version: mcVersion, auth: 'offline' });
+    installMineflayerFixes(bot, { extraDrop: MEASURE_DROPS });
+    // tp 必须在 spawn 之后：实体还没上服时 RCON 的 tp 会静默失败，bot 留在世界出生点
+    // （TF 实跑淹死在那儿），测量对着两百格外空气空转。
+    await new Promise((res, rej) => { bot.once('spawn', res); bot.once('error', rej); });
+    await cmd(`tp ${username} ${bx + 0.5} ${by} ${bz + 0.5}`);
+    // 创造模式：量测要几十分钟，生存模式的机器人会淹死/摔死/被 mod 怪打死（TF 实跑：淹死）
+    await cmd(`gamemode creative ${username}`);
+    await sleep(1200);
+    await cmd(`tp ${username} ${bx + 0.5} ${by} ${bz + 0.5}`);
+    await sleep(800);
+    botAlive = true;
+    bot.once('end', () => { botAlive = false; });
+    return bot;
+  };
+  await makeMeasureBot();
   // 验收：bot 必须真在测试点旁。对不上就大声停——对空气空转两小时比失败更糟。
-  const spot = new Vec3(bx + 0.5, by + 0.5, bz + 0.5);
-  const dist = bot.entity ? bot.entity.position.distanceTo(spot) : Infinity;
-  if (dist > 32) {
-    throw new Error(`机器人没到测试点（距它还有 ${Math.round(dist)} 格）——tp 没生效，测量会全空转。先检查服务器是否 allow-rcon 与实体生成`);
+  {
+    const spot = new Vec3(bx + 0.5, by + 0.5, bz + 0.5);
+    const dist = bot.entity ? bot.entity.position.distanceTo(spot) : Infinity;
+    if (dist > 32) {
+      throw new Error(`机器人没到测试点（距它还有 ${Math.round(dist)} 格）——tp 没生效，测量会全空转。先检查服务器是否 allow-rcon 与实体生成`);
+    }
   }
 
   const read = () => {
     const b = bot.blockAt(at);
     return b && typeof b.stateId === 'number' ? b : null;
   };
-  // 等第一列真到客户端，否则整轮全是 null
-  await waitFor(read, () => true, 10000);
+  // 等第一列真到客户端（新地形要现生成，TF 地物多的地方十几秒），否则整轮全是 null
+  await waitFor(read, () => true, 60000);
 
   const writePartial = () => {
     try {
@@ -216,10 +261,21 @@ export default async function cmdCalibrate(args, io) {
         blocks,
         items,
         failed,
+        // 指纹必须跟着半成品一起写：`--resume` 要靠它判断"还是不是这台服务器"。
+        // 真实事故：一个残留的 calibrate 每 20 个方块写一次不带指纹的 partial，
+        // 把完整版覆盖掉，之后 verify 拿不到指纹去核对。
+        ...(serverMods ? { serverMods } : {}),
         partial: true,
       });
     } catch { /* 落盘失败不影响继续跑 */ }
   };
+  // 引信方块：放上去服务端直接崩（TF 的 sorting_log_core 实测：performTreeEffect
+  // 在随机刻里抛异常，服务器自爆停服）。人看崩溃报告点名后从这里跳过。
+  const skipBlocks = new Set(String(args['skip-block'] ?? '').split(',').map((x) => x.trim()).filter(Boolean));
+  if (skipBlocks.size > 0) {
+    process.stderr.write(`  跳过引信方块：${[...skipBlocks].join(', ')}\n`);
+  }
+
   let n = 0;
   const trace = process.env.MODSMITH_TRACE
     ? (...a) => process.stderr.write(`  [trace] ${a.join(' ')}\n`)
@@ -238,28 +294,41 @@ export default async function cmdCalibrate(args, io) {
       await cmd(`setblock ${bx} ${by - 1} ${bz} minecraft:stone`);
       await cmd(`setblock ${bx} ${by} ${bz} minecraft:air`);
       await cmd(`tp ${username} ${bx + 0.5} ${by} ${bz + 0.5}`);
-      await sleep(900);
+      await sleep(1500);
       resp = await cmd(full);
     }
     return resp;
   };
   for (const [name, spec] of (itemsOnly ? [] : entries)) {
     n++;
+    if (skipBlocks.has(name)) continue;
     if (completeBlocks.has(name)) continue;
     const states = spec.states?.length ? spec.states : [{}];
     const list = [];
+    const malformed = [];
     trace(`block ${n} ${name} states=${states.length}`);
     for (const st of states) {
+      // 清单里的状态属性必须是合法的 block state 参数（小写字母/数字/下划线）。
+      // jar 解析会把多属性变体拼成 "z|y" 这种值，setblock 直接语法错——跳过并记账，
+      // 不让它烧掉三次重试（TF 的 thorns 每块 13 个这种状态）。
+      const badProps = Object.entries(st ?? {}).some(([k, v]) => !/^[a-z0-9_]+$/.test(k) || !/^[a-z0-9_.-]+$/.test(String(v)));
+      if (badProps) { malformed.push(propsKey(st)); continue; }
       const arg = Object.keys(st).length > 0 ? `[${propsKey(st)}]` : '';
       let got = null;
-      // 只有作物需要换支撑（要耕地）。非作物别动这一格 —— 每状态都重设一次会让
-      // 方块触发一次更新，实测把整轮测量搞成了同一个残留 id。
-      if (cropNames.has(name)) {
-        await setblockAt(`setblock ${bx} ${by - 1} ${bz} minecraft:farmland`);
-      }
       for (let attempt = 0; attempt < 3 && !got; attempt++) {
+        // 支撑面：作物要耕地；其余默认草方块——TF 的植物（burnt_thorns 等）放在石头上
+        // 会被服务端立刻打掉，白等两轮；换草方块就能站住。重试时换土壤再试。
+        const soil = cropNames.has(name)
+          ? 'minecraft:farmland'
+          : ['minecraft:grass_block', 'minecraft:dirt', 'minecraft:stone'][attempt];
+        await setblockAt(`setblock ${bx} ${by - 1} ${bz} ${soil}`);
         await setblockAt(`setblock ${bx} ${by} ${bz} minecraft:air`);
-        await waitFor(read, (b) => b.stateId === 0, 900);
+        // 清空必须**真读到 0** 才能往下走：读不到 0 = 客户端还停在上一块上，
+        // 这时后面读到的"非 0"是残留读数。真实事故：上一轮遗留的第二个 calibrate
+        // 进程并发写同一份 ids，读滞后 + 不检查清空结果，把 1812/2779 条状态记成
+        // vanilla id（canopy_chest=13344=苔石楼梯），--no-selfcheck 下一路写盘。
+        const cleared = await waitFor(read, (b) => b.stateId === 0, 3000);
+        if (!cleared) { trace(`  ${n} ${name} attempt=${attempt} air-clear timeout`); continue; }
         trace(`  ${n} ${name} attempt=${attempt} air-cleared`);
         const resp = await setblockAt(`setblock ${bx} ${by} ${bz} ${name}${arg}`);
         trace(`  ${n} ${name} set resp=${String(resp).slice(0, 40)}`);
@@ -267,19 +336,30 @@ export default async function cmdCalibrate(args, io) {
           if (attempt === 2) failed.push({ block: name, props: st, resp: resp.slice(0, 160) });
           continue;
         }
-        const first = await waitFor(read, (b) => b.stateId !== 0, 2500);
+        const first = await waitFor(read, (b) => b.stateId !== 0, 6000);
         if (!first) continue;
         await sleep(300);
         const second = read();
-        if (second && second.stateId === first.stateId && second.stateId !== 0) {
-          got = { props: st, stateId: second.stateId };
+        if (!second || second.stateId !== first.stateId || second.stateId === 0) continue;
+        // 第二道闸：mod 方块的状态 id 必然大于 vanilla 上限。落在区间内 = 残留，
+        // 重试而不是记下（写盘前还有一次同样判据的兜底剔除）。
+        if (vanillaCeiling > 0 && second.stateId <= vanillaCeiling) {
+          trace(`  ${n} ${name} attempt=${attempt} stale vanilla-range ${second.stateId}`);
+          continue;
         }
+        got = { props: st, stateId: second.stateId };
       }
       if (got) list.push(got);
     }
     if (list.length > 0) blocks[name] = list;
     else failed.push({ block: name, resp: 'no state' });
-    if (n % 20 === 0) process.stderr.write(`  方块 ${n}/${entries.length}\n`);
+    if (malformed.length > 0) {
+      failed.push({ block: name, kind: 'malformed-state', resp: `清单里的状态属性非法，已跳过：${malformed.slice(0, 3).join('; ')}` });
+    }
+    if (n % 20 === 0) {
+      process.stderr.write(`  方块 ${n}/${entries.length}\n`);
+      writePartial();   // 半路死掉（断连/被杀/断电）也能 --resume 续跑
+    }
   }
   await cmd(`setblock ${bx} ${by} ${bz} minecraft:air`);
 
@@ -351,8 +431,11 @@ export default async function cmdCalibrate(args, io) {
       const dump = (bot.inventory?.items?.() ?? []).map((x) => `${x.name}#${x.type}@${x.slot}`).join(',');
       failed.push({ item: name, resp: `背包里没出现（give 回：${resp.trim().slice(0, 50)}；背包=${dump || '空'}）` });
     }
-    if (m % 40 === 0) process.stderr.write(`  物品 ${m}/${itemNames.length}
+    if (m % 40 === 0) {
+      process.stderr.write(`  物品 ${m}/${itemNames.length}
 `);
+      writePartial();
+    }
   }
   await cmd(`clear ${username}`);
 
@@ -384,6 +467,26 @@ export default async function cmdCalibrate(args, io) {
     failed.push(...report.failed);
   }
 
+  // ---- 不变量：mod 方块的状态 id 必然在 vanilla 之后 ----
+  //
+  // 落在 vanilla 区间里的 stateId 只能是"读到了上一格的残留方块"。这条不连服务器
+  // 就能判死：真实事故是 TF 一批方块在 --no-selfcheck 下落盘，1812/2779 条 id 是
+  // vanilla 方块（canopy_chest 记成 13344 = 苔石楼梯）。宁可未知，不能错名。
+  {
+    if (vanillaCeiling > 0) {
+      const checked = dropVanillaStateIds(blocks, vanillaCeiling);
+      if (checked.dropped.length > 0) {
+        blocks = checked.blocks;
+        ids.blocks = blocks;
+        process.stderr.write(`  剔除 ${checked.dropped.length} 条落在 vanilla 区间（≤${vanillaCeiling}）的 stateId：只可能是残留读数\n`);
+        for (const d of checked.dropped.slice(0, 6)) process.stderr.write(`    ${d.block} 的 ${d.stateId}\n`);
+        for (const d of checked.dropped) {
+          failed.push({ block: d.block, kind: 'vanilla-range', resp: `stateId ${d.stateId} ≤ vanilla 上限 ${vanillaCeiling}` });
+        }
+      }
+    }
+  }
+
   // ---- 自检：量出来的 id 到底对不对 ----
   //
   // 为什么必须验：`/setblock` 对一个"放不住"的方块（告示牌要墙/顶、作物要耕地）会
@@ -411,21 +514,33 @@ export default async function cmdCalibrate(args, io) {
     const bad = [];
     const checked = injected ? Object.keys(blocks) : [];
     for (const name of checked) {
-      // 每个方块都把 bot 拉回测试格：物理开着放方块会把 bot 挤得漂移，漂出
-      // 视距后 blockAt 读的是残留数据 —— 实测从第 81 个方块起全部读到同一个
-      // 残影，47 个好方块差点被当成错名删光
-      await cmd(`tp ${username} ${bx + 0.5} ${by} ${bz + 0.5}`);
+      // 断线重连：连接被刷断后 blockAt 全是空/残影，不重连会把好方块成片误杀
+      if (!botAlive) {
+        process.stderr.write('  自检中断线，重连继续\n');
+        await makeMeasureBot();
+        try {
+          installModRegistry(bot, tempPack);
+          bot.physicsEnabled = false;
+        } catch { injected = false; break; }
+      }
+      // 距离门槛：bot 没漂就不刷 tp——487 个方块每个都 tp 实测把连接刷断过；
+      // 自检全程关着物理，bot 不会自己动，只有断线重连后才需要拉回来。
+      const near = bot.entity && bot.entity.position.distanceTo(new Vec3(bx + 0.5, by, bz + 0.5)) < 8;
+      if (!near) await cmd(`tp ${username} ${bx + 0.5} ${by} ${bz + 0.5}`);
       // 非作物也要有支撑面，否则方块会掉下去 —— 用石头；作物用耕地
       const soil = cropNames.has(name) ? 'minecraft:farmland' : 'minecraft:stone';
-      await cmd('setblock ' + bx + ' ' + (by - 1) + ' ' + bz + ' ' + soil);
-      const placeResp = await cmd('setblock ' + bx + ' ' + by + ' ' + bz + ' ' + name);
+      await setblockAt('setblock ' + bx + ' ' + (by - 1) + ' ' + bz + ' ' + soil);
+      // 先快照再放置：读"非空"没用——区块里躺着的还是上一个方块（TF 实测读滞后 1~2 轮，
+      // antibuilder 摆下去读到 alpha_yeti_wall_trophy）。必须等 stateId 真变化。
+      const before = bot.blockAt(at)?.stateId ?? -1;
+      const placeResp = await setblockAt('setblock ' + bx + ' ' + by + ' ' + bz + ' ' + name);
       if (FAIL_RE.test(placeResp)) {
         // 服务端拒绝放置不是 id 错的证据（可能这格摆不住）：不删，记一笔
         failed.push({ block: name, kind: 'place-failed', resp: placeResp.slice(0, 120) });
         continue;
       }
-      await sleep(260);
-      const b = bot.blockAt(at);
+      // 等这格的 stateId 真的变了再读（等"非空"会立刻命中上一轮的残块）。
+      const b = await waitFor(() => bot.blockAt(at), (x) => !!x && x.stateId !== before, 6000);
       const seen = b?.name ?? '';
       // 光比名字不够：prismarine 是按 stateId 活查注册表的，记录里只要有一条真 id
       // 落在表上，名字就会对 —— 重复或错的那些条目照样混过去。所以还要核 stateId。
@@ -461,6 +576,10 @@ export default async function cmdCalibrate(args, io) {
       if (deleted > Math.max(5, Math.floor(checked.length * 0.1))) {
         // 大面积"错名"几乎总是环境坏了（客户端区块失新、cell 残留），不是数据坏了。
         // 抛错中止：宁可不写盘，也别把好数据削掉 —— 实测一晚差点毁掉生产 ids。
+        // 样本必须随熔断一起打出来，否则没法定位是哪类环境坏了。
+        for (const b of bad.slice(0, 8)) {
+          process.stderr.write(`    ${b.block} 读回来是 ${b.seen || '(空)'}\n`);
+        }
         throw new Error(`自检剔除 ${deleted}/${checked.length} 个方块，远超合理范围：测量环境已坏（区块失新或服务器异常）。中止本次运行，ids 文件保持原样；稍后重跑`);
       }
       process.stderr.write('  自检剔除 ' + bad.length + ' 个量错的方块（名字对不上）：\n');
@@ -504,6 +623,7 @@ export default async function cmdCalibrate(args, io) {
   }
   } finally {
     await cleanup();
+    try { unlinkSync(lockPath); } catch { /* 锁已经被删了 */ }
   }
   console.log(outPath);
 }
