@@ -121,7 +121,7 @@ test('onboard：evidence 路径从 probe 输出接到 learn 输入（同一个�
   assert.match(probeOut, /mypack-probe\.json$/);
 });
 
-test('learn --infer 不覆盖人工站点（生产命令被静默改掉会一直重试）', async () => {
+test('learn --infer 默认合并：人工站点的命令原样保留，只补字段与追加新站点', async () => {
   const { learnStations } = await import('../src/learn.mjs');
   const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
@@ -130,16 +130,91 @@ test('learn --infer 不覆盖人工站点（生产命令被静默改掉会一直
   try {
     const p = join(dir, 'm.json');
     writeFileSync(p, JSON.stringify({
-      mod: 'm', namespace: 'm', containers: [], blocks: { 'm:cooking_pot': {} },
-      items: {}, stations: [{ id: 'cooking_pot', kind: 'sidecar-recipe', block: 'm:cooking_pot', command: '/fdchef cook {recipe}', recipeType: 'm:cooking' }],
-      recipes: [{ id: 'm:cooking/a', type: 'm:cooking', ingredients: [[{ id: 'minecraft:beef' }]] }],
+      mod: 'm', namespace: 'm', containers: [],
+      blocks: { 'm:cooking_pot': {}, 'm:cutting_board': {} },
+      items: {}, stations: [{
+        id: 'cooking_pot', kind: 'sidecar-recipe', block: 'm:cooking_pot',
+        command: '/fdchef cook {recipe}', recipeType: 'm:cooking', verified: true,
+      }],
+      recipes: [
+        { id: 'm:cooking/a', type: 'm:cooking', ingredients: [[{ id: 'minecraft:beef' }]] },
+        { id: 'm:cutting/b', type: 'm:cutting', ingredients: [[{ id: 'minecraft:beef' }]],
+          tool: [{ id: 'm:iron_knife' }, { id: 'm:diamond_knife' }] },
+        // 工具家族要至少两条配方才成立（单条可能是偶然同后缀）
+        { id: 'm:cutting/c', type: 'm:cutting', ingredients: [[{ id: 'minecraft:porkchop' }]],
+          tool: [{ id: 'm:iron_knife' }, { id: 'm:diamond_knife' }] },
+      ],
     }));
     const io = { fatal: (m) => { throw new Error(m); } };
     const r = await learnStations(p, {}, io);
-    assert.equal(r.ok, false, '默认不许覆盖');
-    assert.deepEqual(r.kept, ['cooking_pot']);
+    assert.equal(r.ok, true);
     const after = JSON.parse(readFileSync(p, 'utf8'));
-    assert.equal(after.stations[0].command, '/fdchef cook {recipe}', '人工命令必须原样保留');
+    const pot = after.stations.find((x) => x.id === 'cooking_pot');
+    assert.equal(pot.command, '/fdchef cook {recipe}', '人工命令必须原样保留');
+    assert.equal(pot.verified, true, '人工核实标记不能被推断冲掉');
+    const board = after.stations.find((x) => x.block === 'm:cutting_board');
+    assert.ok(board, '没被人工占用的工作站要追加进来');
+    assert.equal(board.kind, 'two-step-use');
+    assert.equal(board.recipeType, 'm:cutting', '新站点要能回连到配方类型');
+    assert.equal(board.needsReview, true, '推断出来的必须待审');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('learn --infer 不把新配方类型并进人工站点（命令可能不认那种配方）', async () => {
+  const { learnStations } = await import('../src/learn.mjs');
+  const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'modsmith-learn-'));
+  try {
+    const p = join(dir, 'm.json');
+    // m:oven 的词干 oven 也是 cooking_pot 的别名：两种类型落到同一个方块
+    writeFileSync(p, JSON.stringify({
+      mod: 'm', namespace: 'm', containers: [], blocks: { 'm:cooking_pot': {} }, items: {},
+      stations: [{
+        id: 'cooking_pot', kind: 'sidecar-recipe', block: 'm:cooking_pot',
+        command: '/fdchef cook {recipe}', recipeType: 'm:cooking',
+      }],
+      recipes: [
+        { id: 'm:cooking/a', type: 'm:cooking', ingredients: [[{ id: 'minecraft:beef' }]] },
+        { id: 'm:oven/b', type: 'm:oven', ingredients: [[{ id: 'minecraft:bread' }]] },
+      ],
+    }));
+    const io = { fatal: (m) => { throw new Error(m); } };
+    const r = await learnStations(p, {}, io);
+    assert.equal(r.ok, true);
+    const after = JSON.parse(readFileSync(p, 'utf8'));
+    assert.equal(after.stations.length, 1, '不该为同一方块凭空造第二个站点');
+    const pot = after.stations[0];
+    assert.equal(pot.command, '/fdchef cook {recipe}');
+    assert.equal(pot.recipeType, 'm:cooking', '人工声明的类型不被替换');
+    assert.equal(pot.recipeTypes, undefined, '也不许悄悄扩成数组声称支持新类型');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('learn --infer --force 会整段重推（人工命令也覆盖，显式要求才允许）', async () => {
+  const { learnStations } = await import('../src/learn.mjs');
+  const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'modsmith-learn-'));
+  try {
+    const p = join(dir, 'm.json');
+    writeFileSync(p, JSON.stringify({
+      mod: 'm', namespace: 'm', containers: [], blocks: { 'm:cooking_pot': {} }, items: {},
+      stations: [{ id: 'cooking_pot', kind: 'sidecar-recipe', block: 'm:cooking_pot', command: '/fdchef cook {recipe}', recipeType: 'm:cooking' }],
+      recipes: [{ id: 'm:cooking/a', type: 'm:cooking', ingredients: [[{ id: 'minecraft:beef' }]] }],
+    }));
+    const io = { fatal: (m) => { throw new Error(m); } };
+    const r = await learnStations(p, { force: true }, io);
+    assert.equal(r.ok, true);
+    const after = JSON.parse(readFileSync(p, 'utf8'));
+    assert.equal(after.stations[0].command, '/cooking_pot cook {recipe}', '--force 才允许换成推断命令');
+    assert.equal(after.stations[0].inferred, true);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

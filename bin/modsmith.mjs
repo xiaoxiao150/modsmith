@@ -114,6 +114,11 @@ const USAGE = `modsmith ${VERSION} — 把 Fabric mod jar 变成机器人能用�
       --stations             额外验收工作站：放材料、发命令、断言产物（L3）
       --scan-blocks          把候选方块逐个右键一遍，记录开窗行为（给 learn --infer 当证据）
       --scan-limit <n>       方块扫描上限，默认 400
+      --infer                规则推断工作站（不调模型）：配方类型 → 方块词干/工具/实测证据
+      --evidence <file>      probe --scan-blocks 的输出，作为机制判断的依据（强烈建议）
+      --force                配 --infer：整段重推，连人工站点的命令一起覆盖。
+                             默认是合并：人工站点原样保留（只补 recipeType/toolSuffix），
+                             只追加没被占用的方块
       模型走环境变量：MODSMITH_BASE_URL / MODSMITH_API_KEY / MODSMITH_MODEL
 
   modsmith sidecar <manifest.json> [选项]

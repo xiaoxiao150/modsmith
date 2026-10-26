@@ -287,21 +287,71 @@ export async function learnStations(manifestPath, opts = {}, io) {
     return { ok: false, manifest, stations: [] };
   }
 
-  // **不许覆盖人工站点**：已有站点里只要有一条不是推断出来的（人手写/审过），
-  // 就整段保留。真实事故：FD 生产清单的厨锅命令是 `/fdchef cook {recipe}`
-  // （另一个侧车），被 --infer 覆盖成 `/cooking_pot cook {recipe}` 后机器人会
-  // 对着不存在的命令一直重试。要覆盖必须显式 --force。
+  // **改名不改站**：已有站点里只要有一条不是推断出来的（人手写/审过），默认保留它，
+  // 只做两件事：① 同一方块的推断结果**补全缺失的技术字段**（recipeType/toolSuffix），
+  // ② 没被人工站点占用的方块追加新推断。命令、kind、block、verified 一律不碰。
+  //
+  // 真实事故：FD 生产清单的厨锅命令是 `/fdchef cook {recipe}`（另一个侧车），
+  // 被整段 --infer 覆盖成 `/cooking_pot cook {recipe}` 后机器人对着不存在的命令
+  // 一直重试。合并时保留原对象，就是为了让这类命令一个字都不变。
+  // 要整段重推（比如人工站点全错）必须显式 --force。
   const curated = (manifest.stations ?? []).filter((st) => st && st.inferred !== true);
+  let merged = stations;
+  const filled = [];
+  const kept = curated.map((x) => x.id);
   if (curated.length > 0 && opts.force !== true) {
-    console.error(`\n  已有 ${curated.length} 条人工站点（${curated.map((x) => x.id).join(', ')}），不覆盖。`);
-    console.error('  这些站点的命令/参数可能是人核对过的；重新推断会静默改掉它们。');
-    console.error('  确实要重推：加 --force。只追加新的：先手工把旧的删掉或改名。');
-    return { ok: false, manifest, stations: [], kept: curated.map((x) => x.id) };
+    const byBlock = new Map(curated.map((st) => [st.block, st]));
+    const ids = new Set(curated.map((x) => x.id));
+    merged = [...curated];
+    const added = [];
+    const uncovered = [];
+    for (const st of stations) {
+      const cur = byBlock.get(st.block);
+      if (cur) {
+        // 同方块、人工站点已经声明了别的配方类型：**不能**顺手把新类型并进去。
+        // 人工站点的命令（例如服务端另一个侧车）通常只处理它自己的类型，并进来等于
+        // 声称一条走不通的路——又是"错名比未知更糟"。只报告，交给人决定。
+        const curTypes = Array.isArray(cur.recipeTypes) ? cur.recipeTypes : (cur.recipeType ? [cur.recipeType] : []);
+        if (curTypes.length > 0 && st.recipeType && !curTypes.includes(st.recipeType)) {
+          uncovered.push({ block: st.block, station: cur.id, type: st.recipeType });
+          continue;
+        }
+        const fill = {};
+        if (curTypes.length === 0 && st.recipeType) fill.recipeType = st.recipeType;
+        if (cur.kind === 'two-step-use' && !cur.toolSuffix && st.toolSuffix) fill.toolSuffix = st.toolSuffix;
+        if (Object.keys(fill).length > 0) {
+          Object.assign(cur, fill);
+          filled.push({ id: cur.id, ...fill });
+        }
+        continue;
+      }
+      let id = st.id;
+      for (let n = 2; ids.has(id); n += 1) id = `${st.id}_${n}`;
+      st.id = id;
+      ids.add(id);
+      added.push(st);
+      merged.push(st);
+    }
+    console.error(`\n  保留 ${curated.length} 条人工站点（${kept.join(', ')}），命令不动。`);
+    for (const f of filled) {
+      const what = Object.entries(f).filter(([k]) => k !== 'id').map(([k, v]) => `${k}=${v}`).join(' ');
+      console.error(`  · ${f.id}：补全 ${what}（命令/机制不变）`);
+    }
+    console.error(added.length > 0
+      ? `  + 追加 ${added.length} 条推断站点（${added.map((x) => `${x.id}[${x.kind}]`).join(', ')}）`
+      : '  · 没有新的站点可追加');
+    for (const u of uncovered) {
+      console.error(`  ! ${u.type} 也落在 ${u.block} 上，但人工站点「${u.station}」只声明了别的类型——没有自动并入（命令可能不认这种配方），要支持得人工加站点`);
+    }
+    if (filled.length === 0 && added.length === 0) {
+      console.error('✓ 无需改动（人工站点已覆盖全部配方类型）');
+      return { ok: true, manifest, stations: [], kept, filled: [], added: [] };
+    }
   }
 
-  applyLearned(manifest, { stations, prompt: '', unsupported: [] });
+  applyLearned(manifest, { stations: merged, prompt: '', unsupported: [] });
   writeManifest(manifestPath, manifest);
-  console.error(`✓ 推断出 ${stations.length} 个工作站（needsReview: true，人工核对后再采信）`);
+  console.error(`✓ 清单里的工作站共 ${merged.length} 条（新推断的带 needsReview: true，人工核对后再采信）`);
   console.error('  下一步：modsmith sidecar <manifest> 生成侧车配置；two-step 站点由机器人直接操作');
-  return { ok: true, manifest, stations };
+  return { ok: true, manifest, stations: merged, kept, filled, added: merged.filter((x) => x.inferred === true) };
 }
