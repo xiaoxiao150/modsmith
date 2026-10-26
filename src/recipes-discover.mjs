@@ -242,7 +242,7 @@ export function discoverSerializers(buf, opts = {}) {
   let anchoredFailNotes = null;
   if (opts.knownNames?.size > 0) {
     // 切段求解要扫候选找"所有出现都能精确对齐"的那条，给足预算（默认量大但只为内存里的计数）
-    const anchored = solveAnchored(buf, { ...opts, budget: Math.max(opts.budget ?? 0, 12_000_000) });
+    const anchored = solveAnchored(buf, { ...opts, budget: Math.max(opts.budget ?? 0, 40_000_000) });
     if (anchored?.ok) return anchored;
     // 切段失败的原因要带回给回退的盲搜结果：否则人只看到一堆"头读不出"，不知道该补名字清单
     anchoredFailNotes = anchored?.notes ?? null;
@@ -530,7 +530,12 @@ export function solveAnchored(buf, opts = {}) {
     for (const f of fields) {
       const v = r.data[f.name];
       if (f.kind === 'slot' && v?.id) sc += ctx.knownItemIds.has(v.id) ? 2 : 0;
-      else if (f.kind === 'ingredient' || f.kind === 'optional-ingredient') sc += (v ?? []).filter((id) => ctx.knownItemIds.has(id)).length;
+      // ingredient 按"整组都认得" +2（与 slot 同权）：逐项计分会让 varint,slot,slot
+      // 这种线上等价的拆分压过语义正确的 ingredient（单物品永远等价）。
+      else if (f.kind === 'ingredient' || f.kind === 'optional-ingredient') {
+        const ids = v ?? [];
+        if (ids.length > 0 && ids.every((id) => ctx.knownItemIds.has(id))) sc += 2;
+      }
       else if (f.kind === 'i32') sc += v >= 0 && v <= 1e6 ? 1 : -1;
       else if (f.kind === 'f32') sc += v === 0 || (Math.abs(v) >= 1e-6 && Math.abs(v) <= 1e9) ? 0 : -2;
       // 线上同形的 string 读取常常是「长度 0 + 后面 4 字节当 f32/i32」：空串扣分，
@@ -563,16 +568,26 @@ export function solveAnchored(buf, opts = {}) {
     for (const cand of candidateGrammars(ctx)) {
       if (ctx.budget <= 0 || strict.length >= MAX_FITS || tried >= MAX_TRIES_PER_TYPE) break;
       tried += 1;
+      // 抽样核前 8 条出现就够定形状（105 次的类型全量核会把预算烧光，
+      // 后面的出现交给整包校验——那里错了会在这个类型上换备选）。
+      // 注意**不能遇到第一个不匹配就 break**：采样里的前几条可能正好是"段尾不可信"
+      // 的出现（名字清单缺了中间那条配方），break 会让真文法在 occ[0] 就被判 0 分。
+      // 全部采样逐个核，按命中数计分。
+      const sample = occ.slice(0, 8);
       let fit = 0;
-      for (const o of occ) {
+      for (const o of sample) {
         const r = parsePayload(buf, o.header.payloadStart, cand.fields, ctx);
-        if (!r || r.next !== o.end) break;
-        fit += 1;
+        if (r && r.next === o.end) fit += 1;
       }
-      if (fit === occ.length) strict.push({ ...cand, fit });
-      // 弱候选要多收：真正文法可能排在很多"碰巧跨过错误段尾"的垃圾后面，
-      // 按拟合次数排序后它应当排第一（真文法能对上所有段尾正确的出现）。
-      else if (fit > 0 && weak.length < 200) weak.push({ ...cand, fit });
+      if (fit === sample.length) strict.push({ ...cand, fit: occ.length });
+      // 弱候选**不按数量截断**：深度 1-2 的短垃圾会先占满名额，把深度 3 的真文法挤掉
+      // （TF 实测：真 drying 文法 fit=10，却被 200 个 fit=1 的短序列挡在池外）。
+      // 扫完统一按拟合次数排序，取前 MAX_FITS 个进池。
+      else if (fit > 0) weak.push({ ...cand, fit });
+    }
+    if (strict.length === 0 && weak.length > MAX_FITS) {
+      weak.sort((a, b) => b.fit - a.fit);
+      weak.length = MAX_FITS;
     }
     const fits = strict.length > 0 ? strict : weak;
     if (fits.length === 0) {
@@ -585,6 +600,7 @@ export function solveAnchored(buf, opts = {}) {
     // 没有的话（名字清单有缺口，段尾不可信）退回"拟合次数最多"的候选，交给整包校验裁决。
     const pool = fits;
     if (strict.length === 0) weakTypes.add(typeId);
+    // 严格候选的 fit 记成出现总数（抽样通过不等于全部通过，整包校验兜底）
     pool.sort((a, b) => b.fit - a.fit
       || scoreFit(occ[0].header.payloadStart, b.fields) - scoreFit(occ[0].header.payloadStart, a.fields)
       || Number(b.shape !== null) - Number(a.shape !== null)
@@ -622,10 +638,11 @@ export function solveAnchored(buf, opts = {}) {
   let walk = validateWalk();
   let repairs = 0;
   while (!walk.ok && repairs < 40) {
-    // 只修弱类型（名字缺口下猜的那批）；错位一般出现在上一条配方上。
+    // 错位一般出现在上一条配方上：换它的下一个候选（强弱类型都允许换，
+    // 名字清单完整时整包一遍就过，不会进这个循环）。
     const typeId = walk.lastType;
     const arr = typeId != null ? fitsByType.get(typeId) : null;
-    if (!arr || !weakTypes.has(typeId)) break;
+    if (!arr) break;
     const next = (choice.get(typeId) ?? 0) + 1;
     if (next >= arr.length) break;
     choice.set(typeId, next);

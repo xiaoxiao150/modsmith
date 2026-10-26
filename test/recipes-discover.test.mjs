@@ -244,20 +244,6 @@ test('切段求解：有配方名清单时直接从精确边界反推文法（�
   assert.deepEqual(d.sample, { f0: [100], f1: { id: 110, count: 1 } });
 });
 
-test('切段求解：名字清单不完整时明确报错，而不是用长垃圾文法硬跨段', () => {
-  const unknown = ({ ids = [100], result = 110 }) => Buffer.concat([wing(ids), wslot(result)]);
-  const buf = frame([
-    { name: 'testmod:a', typeId: 50, payload: unknown({}) },
-    { name: 'test:c', typeId: 15, payload: smeltingPayload({}) },
-    { name: 'testmod:b', typeId: 50, payload: unknown({ ids: [101], result: 111 }) },
-  ]);
-  // 只给本 mod 的两个名字：中间那条 vanilla 配方不在清单里，段里就夹了别的配方
-  const knownNames = new Set(['testmod:a', 'testmod:b']);
-  const result = discoverSerializers(buf, { ...OPTS, knownNames });
-  const notes = result.notes.join('；');
-  assert.match(notes, /名字清单不完整|找不到能精确吃干净/, `应点名名字清单：${notes}`);
-});
-
 test('切段求解：线上同形的备选全部列出（i32/f32 语义只能人审）', () => {
   const wi32 = (v) => { const b = Buffer.alloc(4); b.writeInt32BE(v, 0); return b; };
   const buf = frame([
@@ -271,4 +257,23 @@ test('切段求解：线上同形的备选全部列出（i32/f32 语义只能人
   assert.ok(kinds.has('ingredient,slot,f32'), `应包含 f32 读法：${[...kinds]}`);
   const chosen = result.discovered.find((d) => d.typeId === 51);
   assert.equal(chosen.fields.at(-1).kind, 'i32', '数据合理（7200）应当选中 i32 而不是 denormal f32');
+});
+
+test('切段求解：名字清单缺了中间一条配方时，仍能解出文法（弱候选 + 整包校验）', () => {
+  // 真实场景：数据包把配方挂在别的命名空间，名字清单里没有它。
+  // 三个同类型配方，中间那条不在清单里 → 第一条的段尾落在中间那条之后，
+  // 严格拟合不可能成立；弱候选（对上后一条）必须靠整包校验胜出。
+  const payload = ({ ids = [100], result = 110 }) => Buffer.concat([wing(ids), wslot(result)]);
+  const buf = frame([
+    { name: 'testmod:a', typeId: 50, payload: payload({}) },
+    { name: 'testmod:not-listed', typeId: 50, payload: payload({ ids: [101], result: 111 }) },
+    { name: 'testmod:b', typeId: 50, payload: payload({ ids: [102], result: 100 }) },
+  ]);
+  const knownNames = new Set(['testmod:a', 'testmod:b']);   // 故意缺中间那条
+  const result = discoverSerializers(buf, { ...OPTS, knownNames });
+  assert.equal(result.ok, true, result.notes.join('；'));
+  const d = result.discovered.find((x) => x.typeId === 50);
+  assert.ok(d, '应发现 #50');
+  assert.deepEqual(d.fields.map((f) => f.kind), ['ingredient', 'slot']);
+  assert.equal(d.occurrences, 3, '整包校验后三条都要算进去');
 });

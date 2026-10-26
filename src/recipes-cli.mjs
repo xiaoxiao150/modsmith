@@ -122,7 +122,7 @@ export default async function cmdRecipes(args, io) {
       console.error(`  ! 整包没走通（已解析段 ${result.segments.length}）：`);
       for (const n of result.notes) console.error(`    ! ${n}`);
     } else {
-      console.error(`  ✓ 整包走通：${result.count} 条配方全解析（用了 ${Math.max(0, budget - result.budgetLeft)} 预算，名字 ${knownNames.size} 条）`);
+      console.error(`  ✓ 整包走通：${result.count} 条配方全解析（名字 ${knownNames.size} 条）`);
     }
     const kindList = (fields) => fields
       .map((f) => (f.kind === 'list' ? `list<${(f.item ?? []).map((x) => x.kind).join('|')}>` : f.kind)).join(',');
