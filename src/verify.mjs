@@ -387,15 +387,31 @@ export default async function cmdVerify(args, io) {
         continue;
       }
 
+      // 烹饪类站点常有"底下要热源"的机制（heatTag）：不摆热源，服务端会以
+      // "没在加热"拒绝开工，而回执看起来像命令根本不存在。营火是最通用的一种热源。
+      if (typeof st.heatTag === 'string' && st.heatTag) {
+        await cmd(`setblock ${pos.x} ${pos.y - 1} ${pos.z} minecraft:campfire`);
+      }
+
       await cmd(`clear ${username}`);
       const wanted = [];
       for (const cell of ingList(rec)) {
         const name = cell[0];
         if (name) { wanted.push(name); await cmd(`give ${username} ${name} 1`); }
       }
+      // 配方自带的容器（锅类配方要碗/桶）也是**数据**，不是某个侧车的癖好：
+      // wire 里的 container 字段就是它。不给的话服务端实现会拒绝产出（fdchef 实测），
+      // 而失败信息看起来像"站点坏了"。
+      const containerId = refName(rec.container);
+      if (containerId) await cmd(`give ${username} ${containerId} ${Number(rec.container?.count) || 1}`);
       await sleep(400);
-      const cmdName = String(st.command ?? `/${st.id} cook {recipe}`).replace(/^\//, '').split(' ')[0];
-      bot.chat(`/${cmdName} cook ${rec.id}`);
+      // 命令模板整句代入 {recipe}：只取第一个词再拼 "cook" 会把
+      // `/fdchef cook {recipe}` 之外的写法（多级命令、自定义动词）悄悄改错。
+      const template = String(st.command ?? `/${st.id} cook {recipe}`);
+      const line = template.includes('{recipe}')
+        ? template.replaceAll('{recipe}', rec.id)
+        : `${template} ${rec.id}`;
+      bot.chat(line.startsWith('/') ? line : `/${line}`);
       const cookMs = (Number(rec.cooking_time) || Number(st.cookTime) || 200) * 50 + 5000;
       const deadline = Date.now() + cookMs;
       let got = null;
@@ -406,7 +422,7 @@ export default async function cmdVerify(args, io) {
         got = list.find((it) => it.name === expectId || it.name === short) ?? null;
         if (!got) await sleep(250);
       }
-      const cost = wanted.length ? `（材料 ${wanted.length} 种）` : '';
+      const cost = wanted.length ? `（材料 ${wanted.length} 种${containerId ? ` + 容器 ${containerId}` : ''}）` : '';
       add('station', !!got, got
         ? `${st.id}：${rec.id}${cost} → ${got.name}`
         : `${st.id}：命令发出后 ${Math.round(cookMs / 1000)}s 内没拿到 ${expectId}${cost}`);
@@ -415,7 +431,7 @@ export default async function cmdVerify(args, io) {
     }
   }
 
-  await cmd(`fill ${bx - 4} ${by} ${bz - 4} ${bx + 4} ${by + 4} ${bz + 4} minecraft:air`);
+  await cmd(`fill ${bx - 4} ${by - 1} ${bz - 4} ${bx + 4} ${by + 4} ${bz + 4} minecraft:air`);
   await cmd(`forceload remove ${bx - 8} ${bz - 8} ${bx + 8} ${bz + 8}`);
   await sleep(300);
   bot.quit();
