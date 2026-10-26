@@ -11,12 +11,46 @@
  * 守门（错名比未知更糟）：解析必须整包对齐（残包拒绝）；物品名翻不回的条目跳过并计数；
  * 成功率 < 阈值（默认 95%）整份不写。
  */
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
 import { parseDeclareRecipes } from './recipes.mjs';
 import { vanillaItemTable, joinRecipes } from './recipes-join.mjs';
 import { discoverSerializers, sidesheetFromDiscovery } from './recipes-discover.mjs';
 import { readManifest, writeManifest } from './manifest-io.mjs';
+import { Zip } from './zip.mjs';
+
+/**
+ * 从服务器 mods 目录里所有 jar 扫配方名（`data/<ns>/recipe(s)/<path>.json`）。
+ * discover 的切段需要**整包**的名字，只靠本 mod 清单会切不开别的 mod 的未知类型。
+ */
+function recipeNamesFromJars(dir) {
+  const names = new Set();
+  const scan = (path) => {
+    try {
+      const zip = Zip.open(path);
+      for (const n of zip.names('data/')) {
+        const m = /^data\/([^/]+)\/recipes?\/(.+)\.json$/.exec(n);
+        if (m) names.add(`${m[1]}:${m[2]}`);
+      }
+    } catch { /* 坏 jar 跳过：名字清单少几条只会让切段更保守 */ }
+  };
+  let jars = [];
+  try { jars = readdirSync(dir).filter((f) => f.endsWith('.jar')); } catch { return names; }
+  for (const f of jars) scan(join(dir, f));
+
+  // vanilla 配方名：服务器根目录下的原版 jar（versions/<ver>/server-<ver>.jar）。
+  // 切段要求"每个名字锚点正好是一条配方"，缺了 vanilla 的名字，段里就会夹着
+  // 未知名配方而对不齐——所以这一步不能省。
+  const root = dirname(dir);
+  try { scan(join(root, 'server.jar')); } catch { /* 没有就算了 */ }
+  try {
+    for (const v of readdirSync(join(root, 'versions'))) {
+      const d = join(root, 'versions', v);
+      for (const f of readdirSync(d)) if (f.endsWith('.jar')) scan(join(d, f));
+    }
+  } catch { /* 没有 versions 目录 */ }
+  return names;
+}
 
 /**
  * @param {Record<string, any>} args
@@ -60,13 +94,22 @@ export default async function cmdRecipes(args, io) {
       for (const [n, i] of Object.entries(ids.items ?? {})) if (i === id) return n;
       return vanilla[id] ?? `#${id}`;
     };
-    const budget = Number(args.budget ?? 600000);
+    // 配方名清单：清单里已有的配方 id 就是包里的名字（inspect 从 jar 扫来的）。
+    // 有了它 discover 走"切段精确求解"：每条 payload 的起止都由名字给出，
+    // 不再靠盲搜整包（这是"换一个 mod 不用逐字节逆向"的关键输入）。
+    const knownNames = new Set((manifest.recipes ?? []).map((r) => r.id).filter(Boolean));
+    if (typeof args['server-mods'] === 'string') {
+      // 整包的名字：本 mod 清单 + 服务器上所有 jar（别的 mod 的配方名也要有，否则切不开）
+      for (const n of recipeNamesFromJars(args['server-mods'])) knownNames.add(n);
+    }
+    const budget = Number(args.budget ?? 12_000_000);
     const result = discoverSerializers(buf, {
       serializers,
       knownItemIds,
       maxItemId: Math.max(-1, ...knownItemIds),
+      knownNames,
       budget,
-      maxCandidates: Number(args['max-candidates'] ?? 5),
+      maxCandidates: Number(args['max-candidates'] ?? 8),
       trace: process.env.MODSMITH_TRACE
         ? (phase, info) => console.error(`  [trace] ${phase} ${JSON.stringify(info).slice(0, 120)}`)
         : undefined,
@@ -77,13 +120,19 @@ export default async function cmdRecipes(args, io) {
       console.error(`  ! 整包没走通（已解析段 ${result.segments.length}）：`);
       for (const n of result.notes) console.error(`    ! ${n}`);
     } else {
-      console.error(`  ✓ 整包走通：${result.count} 条配方全解析（耗时预算 ${budget - result.budgetLeft}）`);
+      console.error(`  ✓ 整包走通：${result.count} 条配方全解析（用了 ${Math.max(0, budget - result.budgetLeft)} 预算，名字 ${knownNames.size} 条）`);
     }
+    const kindList = (fields) => fields
+      .map((f) => (f.kind === 'list' ? `list<${(f.item ?? []).map((x) => x.kind).join('|')}>` : f.kind)).join(',');
     for (const d of result.discovered) {
-      console.error(`  #${d.typeId} ${d.shape ?? '(盲搜)'} ×${d.occurrences}: ${d.fields.map((f) => f.kind).join(',')}`);
+      console.error(`  #${d.typeId} ${d.shape ?? '(盲搜)'} ×${d.occurrences}: ${kindList(d.fields)}`);
       console.error(`      字段名（形状推断，盲搜为 f0/f1 需人工改名）: ${d.fields.map((f) => f.name).join(', ')}`);
       const names = d.slotIds.slice(0, 5).map((id) => `${id}=${nameOf(id)}`);
       if (d.slotIds.length > 0) console.error(`      命中物品（前 5）: ${names.join(', ')}${d.slotIds.length > 5 ? ' …' : ''}`);
+      if (d.sample) console.error(`      首条样例（对着配方 JSON 核语义）: ${JSON.stringify(d.sample).slice(0, 220)}`);
+      for (const alt of (result.candidates[String(d.typeId)] ?? []).slice(1)) {
+        console.error(`      线上同形的备选（语义不同）: ${kindList(alt.fields)}`);
+      }
     }
     const candidateTypes = Object.keys(result.candidates).filter((k) => !result.discovered.some((d) => String(d.typeId) === k));
     for (const k of candidateTypes) {

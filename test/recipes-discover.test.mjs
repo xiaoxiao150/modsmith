@@ -224,3 +224,51 @@ test('盲搜能发现 i32 / varints 字段（TF 的 drying 与 no_template_smith
   assert.equal(parsed.recipes[1].data[i32Fields.at(-1).name], 6000);
   assert.deepEqual(parsed.recipes[2].data[varintsFields.at(-1).name], [4, 7]);
 });
+
+test('切段求解：有配方名清单时直接从精确边界反推文法（不需要盲搜整包）', () => {
+  // 两条本 mod 的未知类型配方（名字在清单里），夹一条 vanilla 配方
+  const unknown = ({ ids = [100], result = 110 }) => Buffer.concat([wing(ids), wslot(result)]);
+  const buf = frame([
+    { name: 'testmod:a', typeId: 50, payload: unknown({}) },
+    { name: 'test:c', typeId: 15, payload: smeltingPayload({}) },
+    { name: 'testmod:b', typeId: 50, payload: unknown({ ids: [101, 102], result: 111 }) },
+  ]);
+  const knownNames = new Set(['testmod:a', 'test:b', 'test:c', 'testmod:b']);
+  const result = discoverSerializers(buf, { ...OPTS, knownNames });
+  assert.equal(result.ok, true, result.notes.join('；'));
+  const d = result.discovered.find((x) => x.typeId === 50);
+  assert.ok(d, '应发现 #50');
+  assert.equal(d.occurrences, 2);
+  assert.deepEqual(d.fields.map((f) => f.kind), ['ingredient', 'slot']);
+  // 首条样例给人审对照配方 JSON
+  assert.deepEqual(d.sample, { f0: [100], f1: { id: 110, count: 1 } });
+});
+
+test('切段求解：名字清单不完整时明确报错，而不是用长垃圾文法硬跨段', () => {
+  const unknown = ({ ids = [100], result = 110 }) => Buffer.concat([wing(ids), wslot(result)]);
+  const buf = frame([
+    { name: 'testmod:a', typeId: 50, payload: unknown({}) },
+    { name: 'test:c', typeId: 15, payload: smeltingPayload({}) },
+    { name: 'testmod:b', typeId: 50, payload: unknown({ ids: [101], result: 111 }) },
+  ]);
+  // 只给本 mod 的两个名字：中间那条 vanilla 配方不在清单里，段里就夹了别的配方
+  const knownNames = new Set(['testmod:a', 'testmod:b']);
+  const result = discoverSerializers(buf, { ...OPTS, knownNames });
+  const notes = result.notes.join('；');
+  assert.match(notes, /名字清单不完整|找不到能精确吃干净/, `应点名名字清单：${notes}`);
+});
+
+test('切段求解：线上同形的备选全部列出（i32/f32 语义只能人审）', () => {
+  const wi32 = (v) => { const b = Buffer.alloc(4); b.writeInt32BE(v, 0); return b; };
+  const buf = frame([
+    { name: 'testmod:a', typeId: 51, payload: Buffer.concat([wing([100]), wslot(110), wi32(7200)]) },
+  ]);
+  const knownNames = new Set(['testmod:a']);
+  const result = discoverSerializers(buf, { ...OPTS, knownNames });
+  assert.equal(result.ok, true, result.notes.join('；'));
+  const kinds = new Set((result.candidates[51] ?? []).map((c) => c.fields.map((f) => f.kind).join(',')));
+  assert.ok(kinds.has('ingredient,slot,i32'), `应包含 i32 读法：${[...kinds]}`);
+  assert.ok(kinds.has('ingredient,slot,f32'), `应包含 f32 读法：${[...kinds]}`);
+  const chosen = result.discovered.find((d) => d.typeId === 51);
+  assert.equal(chosen.fields.at(-1).kind, 'i32', '数据合理（7200）应当选中 i32 而不是 denormal f32');
+});

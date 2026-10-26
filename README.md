@@ -46,15 +46,23 @@ modsmith onboard <mod.jar> --pack <name> \
 wire 文法没写进 sidesheets——不用再拿 javap 人肉逆向了：
 
 ```bash
-modsmith recipes <manifest.json> --discover            # 对捕获盲搜文法，打印候选
+modsmith recipes <manifest.json> --discover            # 用配方名切段，打印待审文法表
 modsmith recipes <manifest.json> --discover --write    # 候选落到
                                                        # sidesheets/<pack>.serializers.discovered.json
 ```
 
-发现产物的字段序/字段名来自形状库（FD 的 cooking/cutting 家族实测命中，语义字段名直接可用）；
-`name` 一列不在 wire 上，要从 mod 源码确认后填。**候选永不自动生效**——人核对后把确认的
-条目抄进 `<pack>.serializers.json` 才算数。多个文法都能对齐时全部列出（歧义不擅断），
-纯 varint 之类"对任何字节都凑得齐"的退化文法会明确标注可疑。
+`discover` 的正路是**用配方名切段**：manifest 里的配方 id（inspect 从 jar 扫来的）+
+`--server-mods` 目录里所有 jar + 原版 jar 给出整包的名字，每条 payload 的起止就确定了；
+再用「候选必须精确落在段尾」筛文法。暮色森林实测：2134 条配方、17 个自定义类型、
+40 秒出表——不需要 javap，也不需要逐字节试。
+
+前提是名字清单覆盖整包；数据包挂在别的命名空间加配方时（TF 有 15 条晾干在 `minecraft:`
+下），对不齐会**明确报错**并指出段位置，不会猜。
+
+表里每条带：出现的次数、命中物品、**首条样例**（对着配方 JSON 核语义用的原始值）和
+**线上同形的备选**。i32 与 f32 都是 4 字节、`ingredient` 与 `list[slot]` 是同一段 wire——
+这类语义只能由人拍板：挑一个、补上 name，抄进 `<pack>.serializers.json` 才生效。
+**候选永不自动生效**；纯 varint 之类"对任何字节都凑得齐"的退化文法会标注可疑。
 
 ## 快速开始
 

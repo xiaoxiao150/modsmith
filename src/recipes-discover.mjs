@@ -19,7 +19,7 @@
  * `sidesheets/<pack>.serializers.discovered.json`（候选按评分排序、confirmed:false），
  * 人核对后自己抄进 `<pack>.serializers.json` 才算数。多个候选都对齐时全部列出，绝不擅自挑。
  */
-import { readVarint, readString, readSlot, readIngredient, readOne, VANILLA_SERIALIZERS } from './recipes.mjs';
+import { parseDeclareRecipes, readVarint, readString, readSlot, readIngredient, readOne, VANILLA_SERIALIZERS } from './recipes.mjs';
 
 const S = (name) => ({ name, kind: 'string' });
 const V = (name) => ({ name, kind: 'varint' });
@@ -48,6 +48,9 @@ export const SHAPES = [
   { shape: 'smithing-like', fields: [ING('template'), ING('base'), ING('addition'), SL('result')] },
   { shape: 'group+slot', fields: [S('group'), SL('result')] },
   { shape: 'group+varint+slot', fields: [S('group'), V('count'), SL('result')] },
+  // 带代价的"拆解/形状配方"：i32 代价 + 输入 + i32 数量 + 1.20.5 的三字段 pattern
+  // （宽、高、grid）。网格字段必须跟 shape 一起给——盲搜的字段名对不上 gridWidth/gridHeight。
+  { shape: 'cost+pattern', fields: [{ name: 'cost', kind: 'i32' }, ING('input'), { name: 'count', kind: 'i32' }, V('gridWidth'), V('gridHeight'), { name: 'grid', kind: 'grid' }] },
 ];
 
 /** 盲搜的字段序列按这个顺序枚举（先高频后低频；f32/bool 容易对齐出假阳性，放后面）。 */
@@ -112,6 +115,9 @@ function tryHeader(buf, off, ctx) {
   try {
     const name = readString(buf, off);
     if (!isRecipeName(name.value)) return null;
+    // 有配方名清单时（jar 扫出来的）名字必须真在清单里：错位读到的"名字"可能形状
+    // 合法但根本不是配方，这一条把弱判据变成硬判据。
+    if (ctx.knownNames && !ctx.knownNames.has(name.value)) return null;
     const typeId = readVarint(buf, name.next);
     if (typeId.value > ctx.maxTypeId) return null;
     return { name: name.value, typeId: typeId.value, payloadStart: typeId.next };
@@ -150,7 +156,13 @@ function tryRun(buf, payloadStart, typeId, grammar, ctx) {
   }
 }
 
-/** 候选文法生成器：先形状库，再盲搜（DFS，深度 ≤6，至多一个 struct-list）。惰性，预算到了就停。 */
+/**
+ * 候选文法生成器：先形状库，再盲搜（深度 ≤6，至多一个 struct-list）。惰性，预算到了就停。
+ *
+ * 枚举顺序很关键：每一层**先出纯字段序列，再出带 list 的变体**。混在一起枚举时，
+ * 4 字段的 scepter 文法（varint, ingredients, i32, varint）前面会排上十几万个
+ * list 变体，30k 上限内根本轮不到（真实 TF 包上实测）。
+ */
 export function candidateGrammars(ctx) {
   const gen = (function* () {
     for (const s of SHAPES) yield { fields: s.fields, shape: s.shape };
@@ -159,21 +171,34 @@ export function candidateGrammars(ctx) {
     for (const a of ['slot', 'f32', 'varint', 'string', 'ingredient']) {
       for (const b of BLIND_KINDS) listItems.push([{ name: 'v0', kind: a }, { name: 'v1', kind: b }]);
     }
-    const walk = function* (depth, used) {
-      if (depth === 0) { yield []; return; }
+    /** 纯字段序列（不含 list）。 */
+    const plain = function* (n) {
+      if (n === 0) { yield []; return; }
       for (const kind of BLIND_KINDS) {
-        for (const rest of walk(depth - 1, used)) yield [{ name: `f${6 - depth}`, kind }, ...rest];
-      if (!used.list && depth >= 3) {
-        for (const item of listItems) {
-          for (const rest of walk(depth - 1, { ...used, list: true })) {
-            yield [{ name: `f${6 - depth}`, kind: 'list', item }, ...rest];
+        for (const rest of plain(n - 1)) yield [{ kind }, ...rest];
+      }
+    };
+    /** 恰好一个 list 在 pos 位置，其余是纯字段。 */
+    const oneList = function* (n, pos, item) {
+      if (n === 0) { yield []; return; }
+      if (pos === 0) {
+        for (const rest of plain(n - 1)) yield [{ kind: 'list', item }, ...rest];
+      } else {
+        for (const kind of BLIND_KINDS) {
+          for (const rest of oneList(n - 1, pos - 1, item)) yield [{ kind }, ...rest];
+        }
+      }
+    };
+    const named = (fields) => fields.map((f, i) => ({ ...f, name: f.name ?? `f${i}` }));
+    for (let depth = 1; depth <= 6; depth++) {
+      for (const fields of plain(depth)) yield { fields: named(fields), shape: null };
+      if (depth >= 3) {
+        for (let pos = 0; pos < depth; pos++) {
+          for (const item of listItems) {
+            for (const fields of oneList(depth, pos, item)) yield { fields: named(fields), shape: null };
           }
         }
       }
-      }
-    };
-    for (let depth = 1; depth <= 6; depth++) {
-      for (const fields of walk(depth, {})) yield { fields, shape: null };
     }
   })();
   return {
@@ -203,6 +228,7 @@ function scoreOf(run, ctx) {
  * @param {{
  *   serializers?: Record<string, {name?: string, fields: object[]}>,  // 已知模组文法（sidesheets）
  *   knownItemIds?: Set<number>,   // 合法物品 id（vanilla 表 ∪ manifest 实测）
+ *   knownNames?: Set<string>,     // 合法配方名（jar 里 data/<ns>/recipe 目录扫出来的）：错位判据的最后一道
  *   maxItemId?: number,           // 已知最大物品 id（缺省用 knownItemIds 里的最大值）
  *   maxTypeId?: number,           // 序列化器编号上限，默认 4096
  *   budget?: number,              // 解析尝试预算，默认 200000
@@ -211,6 +237,17 @@ function scoreOf(run, ctx) {
  * @returns {{ok: boolean, count: number, segments: object[], discovered: object[], candidates: object[], notes: string[]}}
  */
 export function discoverSerializers(buf, opts = {}) {
+  // 有配方名清单就先走"切段精确求解"：名字给出每条 payload 的起止，问题从盲搜变成
+  // 有确定答案的小题（秒级）。切段不成立（清单缺失/重叠）再退回下面的整包 DFS。
+  let anchoredFailNotes = null;
+  if (opts.knownNames?.size > 0) {
+    // 切段求解要扫候选找"所有出现都能精确对齐"的那条，给足预算（默认量大但只为内存里的计数）
+    const anchored = solveAnchored(buf, { ...opts, budget: Math.max(opts.budget ?? 0, 12_000_000) });
+    if (anchored?.ok) return anchored;
+    // 切段失败的原因要带回给回退的盲搜结果：否则人只看到一堆"头读不出"，不知道该补名字清单
+    anchoredFailNotes = anchored?.notes ?? null;
+    if (opts.trace) for (const n of anchoredFailNotes ?? []) opts.trace('anchored-fail', { note: n });
+  }
   const known = opts.serializers ?? {};
   const knownItemIds = opts.knownItemIds ?? new Set();
   const maxKnown = opts.maxItemId ?? Math.max(0, ...knownItemIds);
@@ -220,6 +257,7 @@ export function discoverSerializers(buf, opts = {}) {
     maxTypeId: opts.maxTypeId ?? 4096,
     budget: opts.budget ?? 200000,
     maxCandidates: opts.maxCandidates ?? 5,
+    knownNames: opts.knownNames,   // 配方名清单（jar 扫出来的）：头部判据从"像"升级为"是"
     trace: opts.trace,
   };
   const notes = [];
@@ -386,7 +424,226 @@ export function discoverSerializers(buf, opts = {}) {
     segments,
     discovered,
     candidates,
-    notes,
+    notes: [...(anchoredFailNotes ?? []), ...notes],
+    budgetLeft: Math.max(0, ctx.budget),
+  };
+}
+
+/**
+ * 用配方名清单把整包**切段**，逐段精确反推文法。
+ *
+ * 为什么这是正路：盲搜整包时，单次出现的类型几乎没有约束（任何短文法都能"吃完这段"），
+ * 搜索树爆炸；而 jar 里的配方名是确定的——把每个名字（带长度前缀）在包里定位出来，
+ * 每条 payload 的起止就都知道了。此时「找一个能把 [start,end) 恰好吃干净的字段序列」
+ * 是一道有精确答案的小题，秒级收敛（暮色森林实测：2134 个名字全部唯一命中，零重叠）。
+ *
+ * 名字清单可以是部分的（只有本 mod 的配方名）：段内会夹着别的 mod / vanilla 的配方，
+ * 段内顺序解析、段尾必须精确落到下一个名字上——约束仍然比盲搜强得多。
+ *
+ * @returns {null|object} 与 discoverSerializers 同形的结果；切段不成立时返回 null
+ */
+export function solveAnchored(buf, opts = {}) {
+  const names = opts.knownNames ?? new Set();
+  const known = opts.serializers ?? {};
+  if (names.size === 0) return null;
+  const knownItemIds = opts.knownItemIds ?? new Set();
+  const maxKnown = opts.maxItemId ?? Math.max(0, ...knownItemIds);
+  const ctx = {
+    knownItemIds,
+    maxPlausibleItemId: maxKnown + 1024,
+    maxTypeId: opts.maxTypeId ?? 4096,
+    budget: opts.budget ?? 200000,
+    maxCandidates: opts.maxCandidates ?? 5,
+    knownNames: null,   // 段内允许不在清单里的名字（别的 mod / vanilla），段尾才是硬约束
+    trace: opts.trace,
+  };
+  const notes = [];
+  let head; let count;
+  try {
+    head = readVarint(buf, 0);
+    count = readVarint(buf, head.next);
+  } catch (err) {
+    return { ok: false, count: 0, segments: [], discovered: [], candidates: {}, notes: [`帧头读不出：${err.message}`] };
+  }
+
+  // ---- 1) 名字定位 ----
+  const byLen = new Map();
+  for (const n of names) {
+    const len = Buffer.byteLength(n, 'utf8');
+    if (!byLen.has(len)) byLen.set(len, new Set());
+    byLen.get(len).add(n);
+  }
+  const firstAt = new Map();
+  for (let p = 1; p + 3 < buf.length; p++) {
+    const len = buf[p];
+    const set = byLen.get(len);
+    if (!set || p + 1 + len >= buf.length) continue;
+    const name = buf.toString('utf8', p + 1, p + 1 + len);
+    if (!set.has(name) || firstAt.has(name)) continue;
+    firstAt.set(name, p);
+  }
+  const anchors = [...firstAt.entries()].map(([name, at]) => ({ name, at })).sort((a, b) => a.at - b.at);
+  if (anchors.length === 0) return null;
+
+  const spans = [];
+  for (let i = 0; i < anchors.length; i++) {
+    const a = anchors[i];
+    let s; let t;
+    try { s = readString(buf, a.at); t = readVarint(buf, s.next); } catch { continue; }
+    const end = i + 1 < anchors.length ? anchors[i + 1].at : buf.length;
+    if (end < t.next) { notes.push(`名字锚点重叠：${a.name} @${a.at} 的 payload 越过下一个锚点`); return null; }
+    spans.push({ name: a.name, typeId: t.value, start: a.at, payloadStart: t.next, end });
+  }
+  if (spans[0].start !== count.next) {
+    notes.push(`第一个名字锚点不在第一条配方上（@${spans[0].start} ≠ ${count.next}）——名字清单可能不完整`);
+  }
+
+  // ---- 2) 按类型求解：候选必须把该类型的**每一次**出现都精确吃干净 ----
+  //
+  // 名字锚点给出每条 payload 的起止，问题从"盲搜整包"变成"有确定答案的小题"。
+  // 前提是名字清单覆盖整包（manifest 里的服务端真值，或所有 jar + 原版 jar）；
+  // 数据包挂到别的命名空间的配方不在清单里时，段尾会落在别处，对不齐会明确报错。
+  const solved = {};
+  const alternativeFits = {};
+  const grammarFor = (typeId) => VANILLA_SERIALIZERS[typeId]
+    ?? solved[typeId]
+    ?? (known[String(typeId)]
+      ? { shape: 'sidesheet', fields: known[String(typeId)].fields ?? known[String(typeId)] }
+      : null);
+
+  /** 候选解析出来的数据像不像真的：i32/f32 这类线上同形的字段靠这个排序。 */
+  const scoreFit = (off, fields) => {
+    const r = parsePayload(buf, off, fields, ctx);
+    if (!r) return -Infinity;
+    let sc = 0;
+    for (const f of fields) {
+      const v = r.data[f.name];
+      if (f.kind === 'slot' && v?.id) sc += ctx.knownItemIds.has(v.id) ? 2 : 0;
+      else if (f.kind === 'ingredient' || f.kind === 'optional-ingredient') sc += (v ?? []).filter((id) => ctx.knownItemIds.has(id)).length;
+      else if (f.kind === 'i32') sc += v >= 0 && v <= 1e6 ? 1 : -1;
+      else if (f.kind === 'f32') sc += v === 0 || (Math.abs(v) >= 1e-6 && Math.abs(v) <= 1e9) ? 0 : -2;
+      // 线上同形的 string 读取常常是「长度 0 + 后面 4 字节当 f32/i32」：空串扣分，
+      // 让真正的 i32/varint 组合赢（scepter 的耐久 9 + category 3）。
+      else if (f.kind === 'string') sc += (v ?? '').length > 0 ? 1 : -1;
+      else if (f.kind === 'varint') sc += v >= 0 && v <= 1e6 ? 0 : -1;
+    }
+    return sc;
+  };
+
+  const byType = new Map();
+  for (const sp of spans) {
+    const header = tryHeader(buf, sp.start, { ...ctx, knownNames: null });
+    if (!header) { notes.push(`段 ${sp.name} @${sp.start} 的头读不出`); return { ok: false, count: count.value, segments: [], discovered: [], candidates: {}, notes }; }
+    if (grammarFor(header.typeId)) continue;   // 已知类型（vanilla/sidesheet）留给整包验证
+    if (!byType.has(header.typeId)) byType.set(header.typeId, []);
+    byType.get(header.typeId).push({ header, end: sp.end });
+  }
+
+  const MAX_FITS = 16;
+  const MAX_TRIES_PER_TYPE = 60000;
+  for (const [typeId, occ] of [...byType].sort((a, b) => a[0] - b[0])) {
+    const fits = [];
+    let tried = 0;
+    for (const cand of candidateGrammars(ctx)) {
+      if (ctx.budget <= 0 || fits.length >= MAX_FITS || tried >= MAX_TRIES_PER_TYPE) break;
+      tried += 1;
+      let ok = true;
+      for (const o of occ) {
+        const r = parsePayload(buf, o.header.payloadStart, cand.fields, ctx);
+        if (!r || r.next !== o.end) { ok = false; break; }
+      }
+      if (ok) fits.push(cand);
+    }
+    if (fits.length === 0) {
+      notes.push(`#${typeId}（${occ[0].header.name} 等 ${occ.length} 条）找不到能精确吃干净所有出现的文法`
+        + `（试过 ${tried} 个候选，预算 ${ctx.budget <= 0 ? '耗尽' : '未耗尽'}）`
+        + '——名字清单可能不完整（--server-mods 指向服务器 mods 目录，含原版 jar）');
+      return { ok: false, count: count.value, segments: [], discovered: [], candidates: {}, notes };
+    }
+    // 选中规则：数据合理性优先（i32 的 9 压过 f32 的 2.6e-41），再看形状库命中/非退化。
+    fits.sort((a, b) => scoreFit(occ[0].header.payloadStart, b.fields) - scoreFit(occ[0].header.payloadStart, a.fields)
+      || Number(b.shape !== null) - Number(a.shape !== null)
+      || Number(isDegenerate(a.fields)) - Number(isDegenerate(b.fields)));
+    solved[typeId] = { fields: fits[0].fields, shape: fits[0].shape };
+    if (fits.length > 1) alternativeFits[typeId] = fits.slice(1);
+    ctx.trace?.('anchor-solve', { typeId, shape: fits[0].shape, occ: occ.length, fits: fits.length });
+  }
+
+  // ---- 3) 整包验证 + 统计 ----
+  const serializers = { ...known };
+  for (const [typeId, g] of Object.entries(solved)) {
+    serializers[typeId] = { name: known[typeId]?.name ?? `discovered#${typeId}`, fields: g.fields };
+  }
+  let parsed;
+  try {
+    parsed = parseDeclareRecipes(buf, { serializers });
+  } catch (err) {
+    notes.push(`段都对齐了，但整包解析失败：${err.message}`);
+    return { ok: false, count: count.value, segments: [], discovered: [], candidates: {}, notes };
+  }
+
+  // 统计每个未知类型的出现次数与命中的物品 id（人审时要看"这文法读出来的东西对不对"）
+  const stat = {};
+  const slotOf = (fields, data, out) => {
+    for (const f of fields) {
+      const v = data?.[f.name];
+      if (f.kind === 'slot' && v?.id) out.push(v.id);
+      else if ((f.kind === 'ingredient' || f.kind === 'optional-ingredient') && Array.isArray(v)) out.push(...v);
+      else if (f.kind === 'list' && Array.isArray(v)) {
+        for (const item of v) for (const sub of f.item ?? []) if (sub.kind === 'slot' && item?.[sub.name]?.id) out.push(item[sub.name].id);
+      } else if (f.kind === 'grid' && Array.isArray(v)) for (const row of v) for (const cell of row ?? []) out.push(...cell);
+    }
+  };
+  for (const rec of parsed.recipes) {
+    const g = solved[rec.typeId];
+    if (!g) continue;
+    const s = (stat[rec.typeId] ??= { occurrences: 0, slots: [], sample: null });
+    s.occurrences += 1;
+    if (s.sample === null) s.sample = rec.data;   // 人审对照配方 JSON 用（字段值是什么）
+    slotOf(g.fields, rec.data, s.slots);
+  }
+  const segments = spans.map((sp) => ({ index: -1, typeId: sp.typeId, start: sp.start, end: sp.end, known: !solved[sp.typeId], occurrences: 1 }));
+  const discovered = [];
+  const candidates = {};
+  for (const [typeId, g] of Object.entries(solved)) {
+    const s = stat[typeId];
+    if (!s) continue;
+    const slotIds = [...new Set(s.slots)].sort((a, b) => a - b);
+    const entry = {
+      typeId: Number(typeId),
+      fields: g.fields,
+      shape: g.shape,
+      occurrences: s.occurrences,
+      slotIds,
+      score: slotIds.reduce((n, id) => n + (ctx.knownItemIds.has(id) ? 2 : 0), 0),
+      degenerate: isDegenerate(g.fields),
+      sample: s.sample,
+      packetValidated: true,
+    };
+    discovered.push({ ...entry, runStart: null, runEnd: null });
+    // 线上同形的语义备选一起列出：i32 与 f32 都是 4 字节、ingredient 与 list[slot]
+    // 是同一段 wire——只有人对着配方 JSON 才能拍板（sidesheet 里 _confirmed 的由来）。
+    const alts = (alternativeFits[typeId] ?? []).map((c) => ({
+      typeId: Number(typeId),
+      fields: c.fields,
+      shape: c.shape,
+      occurrences: s.occurrences,
+      slotIds,
+      score: entry.score,
+      degenerate: isDegenerate(c.fields),
+      packetValidated: false,
+    }));
+    candidates[typeId] = [entry, ...alts].slice(0, ctx.maxCandidates);
+  }
+  discovered.sort((a, b) => a.typeId - b.typeId);
+  ctx.trace?.('anchored-done', { types: Object.keys(solved).length, anchors: anchors.length });
+  return {
+    ok: true,
+    count: count.value,
+    segments,
+    discovered,
+    candidates,
+    notes: notes.filter((n) => n.includes('不在第一条')),
     budgetLeft: Math.max(0, ctx.budget),
   };
 }

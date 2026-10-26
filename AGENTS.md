@@ -33,6 +33,10 @@
      `sidesheets/<pack>.serializers.discovered.json`（`_confirmed:false`），人核对后抄进
      正式 sidesheet 并补 name 才生效；多个文法都能对齐就全部列出（歧义不擅断），
      纯 varint 的退化文法要标注可疑——它对任何字节都凑得齐
+   - discover 走「配方名切段」：名字清单（manifest 的配方 id + `--server-mods` 的 jar +
+     原版 jar）给出每条 payload 的精确起止，候选必须精确落在段尾。名字清单不完整就
+     **报错并指出段位置**，不许用长垃圾文法硬跨段；线上同形的备选（i32/f32、
+     ingredient/list[slot]）必须一起列出，语义由人对配方 JSON 拍板
 
 4. **绝不自动安装生成的模组。**
    通用侧车 jar 留在 `sidecars/.build/build/libs/`、站点配置留在 `sidecars/<pack>/config/`，
