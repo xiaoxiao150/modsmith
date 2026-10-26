@@ -247,6 +247,11 @@ export function discoverSerializers(buf, opts = {}) {
     // 切段失败的原因要带回给回退的盲搜结果：否则人只看到一堆"头读不出"，不知道该补名字清单
     anchoredFailNotes = anchored?.notes ?? null;
     if (opts.trace) for (const n of anchoredFailNotes ?? []) opts.trace('anchored-fail', { note: n });
+    // 名字清单不完整是**输入问题**，盲搜救不回来（它只会在错位上编出更多噪声）：
+    // 直接把这条诊断返回，别让一屏"头读不出"淹掉真正该做的事。
+    if (anchoredFailNotes?.some((n) => n.includes('名字清单不完整'))) {
+      return { ok: false, count: 0, segments: [], discovered: [], candidates: {}, notes: anchoredFailNotes };
+    }
   }
   const known = opts.serializers ?? {};
   const knownItemIds = opts.knownItemIds ?? new Set();
