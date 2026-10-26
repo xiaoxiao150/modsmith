@@ -249,7 +249,7 @@ export function discoverSerializers(buf, opts = {}) {
     if (opts.trace) for (const n of anchoredFailNotes ?? []) opts.trace('anchored-fail', { note: n });
     // 名字清单不完整是**输入问题**，盲搜救不回来（它只会在错位上编出更多噪声）：
     // 直接把这条诊断返回，别让一屏"头读不出"淹掉真正该做的事。
-    if (anchoredFailNotes?.some((n) => n.includes('名字清单不完整'))) {
+    if (anchoredFailNotes?.some((n) => n.includes('名字清单不完整') || n.includes('形状库'))) {
       return { ok: false, count: 0, segments: [], discovered: [], candidates: {}, notes: anchoredFailNotes };
     }
   }
@@ -508,6 +508,10 @@ export function solveAnchored(buf, opts = {}) {
   if (spans[0].start !== count.next) {
     notes.push(`第一个名字锚点不在第一条配方上（@${spans[0].start} ≠ ${count.next}）——名字清单可能不完整`);
   }
+  // 每一个锚点都对上了 = 名字清单覆盖整包。此时再解不出某个类型，就不是"名字缺"，
+  // 而是 payload 里有形状库没有的字段种类（流体/能量/嵌套结构）。两种诊断的修法
+  // 完全不同（补名字 vs 加文法种类），报告不能都甩给"名字清单可能不完整"。
+  const anchorsComplete = spans.length === count.value && spans[0]?.start === count.next;
 
   // ---- 2) 按类型求解：候选必须把该类型的**每一次**出现都精确吃干净 ----
   //
@@ -591,9 +595,12 @@ export function solveAnchored(buf, opts = {}) {
     }
     const fits = strict.length > 0 ? strict : weak;
     if (fits.length === 0) {
+      const why = anchorsComplete
+        ? `整包 ${spans.length}/${count.value} 个名字锚点都对上了，说明这条 payload 里有形状库还没有的`
+          + '字段种类（流体/能量/嵌套结构之类），补名字清单解决不了'
+        : '名字清单可能不完整（--server-mods 指向服务器 mods 目录，含原版 jar）';
       notes.push(`#${typeId}（${occ[0].header.name} 等 ${occ.length} 条）找不到能吃干净任何一条出现的文法`
-        + `（试过 ${tried} 个候选，预算 ${ctx.budget <= 0 ? '耗尽' : '未耗尽'}）`
-        + '——名字清单可能不完整（--server-mods 指向服务器 mods 目录，含原版 jar）');
+        + `（试过 ${tried} 个候选，预算 ${ctx.budget <= 0 ? '耗尽' : '未耗尽'}）——${why}`);
       return { ok: false, count: count.value, segments: [], discovered: [], candidates: {}, notes };
     }
     // 严格优先：有候选能把**每一次**出现都吃干净，就只在它们里挑（名字清单完整时的正路）。
@@ -654,7 +661,9 @@ export function solveAnchored(buf, opts = {}) {
   if (!walk.ok) {
     notes.push(`整包解析失败${repairs > 0 ? `（换过 ${repairs} 次备选）` : ''}：@${walk.off}`
       + `（上一条类型 ${walk.lastType ?? '?'}${walk.missing != null ? `，缺文法 #${walk.missing}` : ''}）`
-      + '——名字清单不完整（数据包可能在别的命名空间加了配方）');
+      + (anchorsComplete
+        ? '——名字锚点完整，是某个自定义类型的文法吃不下它的 payload（形状库不支持的字段）'
+        : '——名字清单不完整（数据包可能在别的命名空间加了配方）'));
     return { ok: false, count: count.value, segments: [], discovered: [], candidates: {}, notes };
   }
   for (const [typeId, arr] of fitsByType) {

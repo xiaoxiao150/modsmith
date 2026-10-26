@@ -277,3 +277,32 @@ test('切段求解：名字清单缺了中间一条配方时，仍能解出文�
   assert.deepEqual(d.fields.map((f) => f.kind), ['ingredient', 'slot']);
   assert.equal(d.occurrences, 3, '整包校验后三条都要算进去');
 });
+
+test('锚点完整但形状库没有的 payload（流体/能量）：诊断指向"形状"而不是"名字清单"', () => {
+  // 两条同类型配方，payload 是 14 个 0x80：varint 缺终止字节、string 长度读不出，
+  // 又凑不成整数个 i32/f32，字段数也超过候选生成器的深度。名字全在已知清单里。
+  const weird = Buffer.alloc(14, 0x80);
+  const buf = frame([
+    { name: 'test:fluid_one', typeId: 30, payload: weird },
+    { name: 'test:fluid_two', typeId: 30, payload: weird },
+  ]);
+  const knownNames = new Set(['test:fluid_one', 'test:fluid_two']);
+  const r = discoverSerializers(buf, { ...OPTS, knownNames, budget: 200000 });
+  assert.equal(r.ok, false);
+  const note = r.notes.join('\n');
+  assert.match(note, /形状库还没有的/, '要说清楚是形状库缺字段种类');
+  assert.doesNotMatch(note, /名字清单可能不完整/, '名字都对上了，不许甩锅给名字清单');
+});
+
+test('名字真缺一条时，诊断仍然指向名字清单', () => {
+  const weird = Buffer.alloc(14, 0x80);
+  const buf = frame([
+    { name: 'test:known_one', typeId: 30, payload: weird },
+    { name: 'test:hidden_two', typeId: 30, payload: weird },
+  ]);
+  // 只给第一条的名字：第二条的名字不在清单里，段尾不可信
+  const knownNames = new Set(['test:known_one']);
+  const r = discoverSerializers(buf, { ...OPTS, knownNames, budget: 200000 });
+  assert.equal(r.ok, false);
+  assert.match(r.notes.join('\n'), /名字清单可能不完整/);
+});
