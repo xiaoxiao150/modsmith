@@ -37,6 +37,8 @@
      原版 jar）给出每条 payload 的精确起止，候选必须精确落在段尾。名字清单不完整就
      **报错并指出段位置**，不许用长垃圾文法硬跨段；线上同形的备选（i32/f32、
      ingredient/list[slot]）必须一起列出，语义由人对配方 JSON 拍板
+   - `recipes` 遇到未知序列化器时自动跑一次 discover 并打印待审表（`onboard` 因此不会
+     硬失败）；产物仍只在 `--write` 时落成 `_confirmed:false` 的待审文件
 
 4. **绝不自动安装生成的模组。**
    通用侧车 jar 留在 `sidecars/.build/build/libs/`、站点配置留在 `sidecars/<pack>/config/`，

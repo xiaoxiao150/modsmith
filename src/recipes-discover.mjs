@@ -547,6 +547,7 @@ export function solveAnchored(buf, opts = {}) {
     for (const cand of candidateGrammars(ctx)) {
       if (ctx.budget <= 0 || fits.length >= MAX_FITS || tried >= MAX_TRIES_PER_TYPE) break;
       tried += 1;
+      // 候选必须把该类型的**每一次**出现都精确吃干净：段尾是硬边界，错一个字节就死。
       let ok = true;
       for (const o of occ) {
         const r = parsePayload(buf, o.header.payloadStart, cand.fields, ctx);
@@ -557,7 +558,7 @@ export function solveAnchored(buf, opts = {}) {
     if (fits.length === 0) {
       notes.push(`#${typeId}（${occ[0].header.name} 等 ${occ.length} 条）找不到能精确吃干净所有出现的文法`
         + `（试过 ${tried} 个候选，预算 ${ctx.budget <= 0 ? '耗尽' : '未耗尽'}）`
-        + '——名字清单可能不完整（--server-mods 指向服务器 mods 目录，含原版 jar）');
+        + '——名字清单不完整（数据包可能在别的命名空间加了配方）：用 --server-mods 指向服务器 mods 目录（含原版 jar），或先用已有 sidesheet 跑一次 recipes 让清单带上服务端真值');
       return { ok: false, count: count.value, segments: [], discovered: [], candidates: {}, notes };
     }
     // 选中规则：数据合理性优先（i32 的 9 压过 f32 的 2.6e-41），再看形状库命中/非退化。

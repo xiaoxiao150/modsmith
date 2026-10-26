@@ -59,6 +59,9 @@ modsmith recipes <manifest.json> --discover --write    # 候选落到
 前提是名字清单覆盖整包；数据包挂在别的命名空间加配方时（TF 有 15 条晾干在 `minecraft:`
 下），对不齐会**明确报错**并指出段位置，不会猜。
 
+`onboard` 走到 `recipes` 时如果遇到未知序列化器，会**自动跑一次发现**并打印这张表
+（`--write` 时落成待审文件），不再是硬失败——你只需要核对表、补 name、抄进正式 sidesheet。
+
 表里每条带：出现的次数、命中物品、**首条样例**（对着配方 JSON 核语义用的原始值）和
 **线上同形的备选**。i32 与 f32 都是 4 字节、`ingredient` 与 `list[slot]` 是同一段 wire——
 这类语义只能由人拍板：挑一个、补上 name，抄进 `<pack>.serializers.json` 才生效。

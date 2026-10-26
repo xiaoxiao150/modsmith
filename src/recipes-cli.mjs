@@ -87,7 +87,8 @@ export default async function cmdRecipes(args, io) {
 
   // --discover：不解清单，改跑未知序列化器的文法发现。产出永远是"待审候选"，
   // 人核对后抄进正式 sidesheet 才生效（错名比未知更糟——机器不替人拍板）。
-  if (args.discover) {
+  // 路径是"配方名切段"：名字来自清单里的配方 id + --server-mods 的 jar + 原版 jar。
+  const runDiscover = () => {
     const vanilla = vanillaItemTable(mcVersion);
     const knownItemIds = new Set([...Object.keys(vanilla).map(Number), ...Object.values(ids.items ?? {})]);
     const nameOf = (id) => {
@@ -147,6 +148,11 @@ export default async function cmdRecipes(args, io) {
       console.error(`  试运行：不写盘。确认输出后加 --write 落盘到 ${outPath}`);
       console.log(JSON.stringify({ ok: result.ok, discovered: result.discovered.map((d) => ({ typeId: d.typeId, shape: d.shape, occurrences: d.occurrences })), candidateTypes }, null, 2));
     }
+    return result;
+  };
+
+  if (args.discover) {
+    runDiscover();
     return;
   }
 
@@ -154,6 +160,14 @@ export default async function cmdRecipes(args, io) {
   try {
     parsed = parseDeclareRecipes(buf, { serializers });
   } catch (err) {
+    // 未知序列化器 = 新 mod：自动跑一次切段发现，把待审文法写出来让人核对。
+    // 这不是"猜"——发现产物永远 _confirmed:false，人不抄进正式 sidesheet 就不生效。
+    if (/未知序列化器编号/.test(err.message) && args['no-discover'] !== true) {
+      console.error(`  ! ${String(err.message).split('（')[0]}：自动跑一次文法发现（产物待审，不会自动生效）`);
+      runDiscover();
+      console.error('  下一步：核对上面的表，重跑同一条命令并加 --write 落盘，再把确认的条目抄进正式 sidesheet');
+      return;
+    }
     io.fatal(`捕获包解析失败：${err.message}\n  文法对不上时绝不猜——补 sidesheets 文法或重跑 calibrate 捕获`);
   }
   console.error(`  解析 ${parsed.recipes.length} 条配方（自定义类型 ${parsed.customTypes.length ? parsed.customTypes.join('/') : '无'}）`);
