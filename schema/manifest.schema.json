@@ -1,6 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://cortico.dev/schemas/mod-manifest-v2.json",
+  "$comment": "0.x 预览：格式可能发生破坏性变更（modsmith < 1.0）。字段以 README 与 src/validate.mjs 为准。",
   "title": "ModManifest",
   "description": "一个 Fabric 模组的语义清单：模组自己不会告诉客户端的东西（方块/物品/配方/站点用法）全在这里。由 modsmith inspect 生成，modsmith learn 补语义，modsmith sidecar 补侧车命令。",
   "type": "object",
@@ -135,7 +136,7 @@
         "type": "string",
         "maxLength": 200
       },
-      "description": "这个 mod 里已知做不到的事。会写进提示词，免得她白试。"
+      "description": "这个 mod 里已知做不到的事。会写进提示词，免得机器人白试。"
     },
     "probe": {
       "type": "object",

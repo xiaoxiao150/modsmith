@@ -239,7 +239,7 @@ export default async function cmdProbe(args, io) {
     mod: manifest.mod,
     probedAt: new Date().toISOString(),
     containers: {
-      // 只留实测能开的——不能开的绝不能进容器表（她 take 的时候会一直超时）
+      // 只留实测能开的——不能开的绝不能进容器表（机器人去取的时候会一直超时）
       ok: containerOk.map((c) => c.name),
       detail: containerOk,
       failed: containerNo,

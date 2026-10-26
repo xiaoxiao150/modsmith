@@ -1,5 +1,5 @@
 /**
- * Manifest 校验器 —— 和 Cortico 的 `mod-manifest.ts` 同一套规则，去掉 TS 类型。
+ * Manifest 校验器 —— 和宿主侧 `mod-manifest.ts` 同一套规则，去掉 TS 类型。
  *
  * 为什么随包发这份：任何 mineflayer 项目只要读 `<pack>.json` + `<pack>-ids.json`
  * 两个文件就能用，那么"这两个文件长什么样"的规范必须跟包一起走，不能只存在于

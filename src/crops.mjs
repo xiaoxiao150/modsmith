@@ -99,7 +99,7 @@ export function inferCrops({ blocks, items = {}, namespace, recipes, sidecar = {
 
   // ---- 另一种作物写法：每个生长阶段是一个独立方块（`x_stage_0`..`x_stage_7`） ----
   // 老 mod 常见（1.13 之前的主流写法）。它没有 age 属性，整块换名，所以和上面的推断
-  // 完全平行。识别出来后在 crops 里标 `kind: 'stage-blocks'`，Cortico 那边按另一条路处理。
+  // 完全平行。识别出来后在 crops 里标 `kind: 'stage-blocks'`，宿主按另一条路处理。
   const stageGroups = new Map();
   for (const full of Object.keys(blocks)) {
     const short = full.slice(namespace.length + 1);

@@ -1,7 +1,7 @@
 /**
  * `modsmith verify` —— 冒烟测试：清单里的东西在真实服务器上真能用吗。
  *
- * 三项检查，任何一项失败都说明 manifest/ids 有问题，别急着交给她：
+ * 三项检查，任何一项失败都说明 manifest/ids 有问题，别急着交给调用方：
  *   1. 方块认得：注入后 `blockAt` 能读出模组方块名（不是空、不是 minecraft:air）
  *   2. 物品能拿：/give 之后客户端读得到，且数字 id 与 ids.json 一致
  *   3. 配方能合：能从配方表里查到至少一条，且原料能被解析成具体物品
@@ -177,7 +177,7 @@ export default async function cmdVerify(args, io) {
 /**
  * 这条配方的原料能不能全部落成具体物品名。
  *
- * 口径必须和 Cortico 运行时一致：先查 manifest.candidates，查不到再走启发式兜底
+ * 口径必须和宿主运行时一致：先查 manifest.candidates，查不到再走启发式兜底
  * （`c:crops/x` → `minecraft:x` 之类）。只看 candidates 会把明明能合的配方报成做不了
  * ——这条一开始就写窄了，对不上运行时。
  */

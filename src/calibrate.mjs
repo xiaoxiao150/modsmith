@@ -491,7 +491,7 @@ export default async function cmdCalibrate(args, io) {
   //
   // 为什么必须验：`/setblock` 对一个"放不住"的方块（告示牌要墙/顶、作物要耕地）会
   // 悄悄失败，客户端读回的是上一格的残留值。实测农夫乐事有 71 个单状态方块全被记成
-  // 同一个 stateId —— 注入后它们会变成"同一个方块"，她看见米捆其实是橱柜。
+  // 同一个 stateId —— 注入后它们会变成"同一个方块"，机器人看见米捆其实是橱柜。
   //
   // 办法：拿刚量到的 ids 直接把注册表注进当前 bot，再逐个放一遍读名字。名字不对的
   // 就把这个方块的 id 全删掉 —— 宁可未知，不能错名。
@@ -554,7 +554,7 @@ export default async function cmdCalibrate(args, io) {
       }
       if (seen !== name) {
         // 作物类自检失败多半是环境原因（要真种、要长在耕地上），不是 id 错。
-        // 这类只标注不删 —— 删了她就完全不认识这个方块了，比"没验过"更糟。
+        // 这类只标注不删 —— 删了机器人就完全不认识这个方块了，比"没验过"更糟。
         const environmental = cropNames.has(name);
         bad.push({ block: name, seen, kept: environmental });
         if (!environmental) {

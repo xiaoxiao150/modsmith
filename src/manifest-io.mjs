@@ -1,7 +1,7 @@
 /**
  * manifest 落盘与读取。
  *
- * 命名约定和 Cortico 那边一致：`<pack>.json` 是语义 manifest，`<pack>-ids.json` 是实测
+ * 命名约定和宿主侧一致：`<pack>.json` 是语义 manifest，`<pack>-ids.json` 是实测
  * 数字 id。两者都放在同一个目录（默认为目标项目的 `src/worlds/minecraft/mods/`）。
  */
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';

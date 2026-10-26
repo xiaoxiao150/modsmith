@@ -6,6 +6,25 @@ Minecraft 机器人是原版协议客户端。它看不见模组方块、拿不�
 因为 1.21 起方块和物品是**静态注册表**，服务端从不下发，模组追加到哪个数字 id 取决于
 加载顺序。`modsmith` 把这一切补齐，并尽量让"接一个新 mod"变成几条命令。
 
+**English in one paragraph:** modsmith turns a Fabric mod jar into a semantic
+manifest (blocks, items, recipes, tags, crops) plus measured numeric registry
+ids that any mineflayer bot can consume. Minecraft bots speak the vanilla
+protocol and 1.21 registries are static — mod blocks and items never get
+downloaded, so their numeric ids depend on load order. modsmith recovers them
+from a live server you own (OP + RCON required) and keeps the mapping
+fingerprinted. Docs are Chinese-first; this README and `AGENTS.md` carry the
+full design notes.
+
+## 状态（0.3.0 预览）
+
+- **L1 完成**：单包接入（Farmer's Delight 3.3.6）从 jar 到机器人可用的清单与 ids，生产在用。
+- **L2 基本完成**："换一个 mod 只要几条命令 + 审一张表"。暮色森林 4.8.629 实测：
+  2134 条配方全解析、17 个自定义序列化器自动发现，不需要 javap；农夫乐事端到端
+  `onboard` 通过（发现 → `--accept` → 修订单）。缺口：线上同形的语义拆分
+  （`i32`/`f32`、`string`/`varints`）仍需人按备选表拍板——协议本身丢了信息。
+- **L3 未开始**：`learn`/`sidecar` 的自动化（站点生成、侧车安装评估）。
+- **0.x 期间 manifest / sidesheet 格式可能发生破坏性变更**，会尽量在 README 里标注。
+
 ## 前置条件
 
 calibrate / probe / verify 是在**你自己的服务器上动手**：`forceload`、`setblock`、
@@ -214,7 +233,7 @@ MODSMITH_MODEL      默认读 /v1/models 的第一条
 包名要和宿主的"当前装载的 mod"配置逐字一致。默认名是 `<mod id>-<MC 版本>-<mod 版本>`；
 如果目标目录里已经有同一个 mod 的清单但名字不同，`inspect` 会直接把该用的 `--pack` 打出来。
 
-校验用 `src/validate.mjs`（和 Cortico 的 `mod-manifest.ts` 同一套规则）。
+校验用 `src/validate.mjs`（和宿主侧 `mod-manifest.ts` 同一套规则）。
 
 ## 已知局限
 

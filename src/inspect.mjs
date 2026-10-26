@@ -16,7 +16,7 @@ import { containerCandidates } from './containers.mjs';
 import { compareVersions, modVersionOf } from './version.mjs';
 
 /**
- * 包名：Cortico 的 `worlds.minecraft.mods.pack` 要逐字对上这个字符串。
+ * 包名：宿主配置里的 `worlds.minecraft.mods.pack` 要逐字对上这个字符串。
  *
  * 默认 `${mod id}-${MC 版本}-${mod 版本}`。**以 id 为准而不是显示名**：id 稳定，
  * 显示名带空格和撇号（"Farmer's Delight"），推出来的东西不可预测。
@@ -226,7 +226,7 @@ export function inspectJar(jarPath, opts = {}) {
       model: refs[0] ?? '',
     };
     if (!hasVariants && !bs.multipart) {
-      // 单状态方块（机器、箱子之类）模型缺失时按实心整块算，别让她以为能穿过去
+      // 单状态方块（机器、箱子之类）模型缺失时按实心整块算，别让机器人以为能穿过去
       if (box === null) { blocks[full].box = [0, 0, 0, 1, 1, 1]; blocks[full].solid = true; }
     }
   }

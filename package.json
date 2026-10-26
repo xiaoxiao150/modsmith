@@ -4,6 +4,27 @@
   "description": "Turn a Fabric mod jar into a semantic manifest any mineflayer bot can use",
   "type": "module",
   "license": "MIT",
+  "author": "modsmith contributors",
+  "keywords": [
+    "minecraft",
+    "mineflayer",
+    "fabric",
+    "mod",
+    "manifest",
+    "calibration",
+    "bot"
+  ],
+  "files": [
+    "bin/",
+    "src/",
+    "schema/",
+    "templates/",
+    "sidesheets/",
+    "types/",
+    "README.md",
+    "AGENTS.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=22"
   },
