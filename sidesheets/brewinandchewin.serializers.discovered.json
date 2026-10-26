@@ -1,8 +1,0 @@
-{
-  "_comment": "由 modsmith recipes --discover 自动发现（brewinandchewin）。 name 为 null：序列化器的名字不在 wire 上，请从 mod 源码确认后填写。 字段名来自形状库推断，盲搜命中的是 f0/f1——核对后把确认的条目抄进 <pack>.serializers.json 才生效。",
-  "serializers": {},
-  "_candidates": {},
-  "_notes": [
-    "整包解析失败（换过 12 次备选）：@134274（上一条类型 18）——名字清单不完整（数据包可能在别的命名空间加了配方）"
-  ]
-}
