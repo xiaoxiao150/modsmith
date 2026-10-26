@@ -40,6 +40,10 @@
      ingredient/list[slot]）必须一起列出，语义由人对配方 JSON 拍板
    - `recipes` 遇到未知序列化器时自动跑一次 discover 并打印待审表（`onboard` 因此不会
      硬失败）；产物仍只在 `--write` 时落成 `_confirmed:false` 的待审文件
+   - 站点推断（`learn --infer`）一律 `needsReview: true`：机制判错机器人会一直白试。
+     规则顺序不许反——**配方类型的词干优先于别名**（cooking→cooking_pot，不是 stove），
+     **工具只认显式 `tool` 字段**（从 ingredients 里找会把蘑菇家族当工具），
+     **实测到自定义界面就必须走侧车**（私有菜单原版客户端开不了）
 
 4. **绝不自动安装生成的模组。**
    通用侧车 jar 留在 `sidecars/.build/build/libs/`、站点配置留在 `sidecars/<pack>/config/`，

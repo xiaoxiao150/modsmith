@@ -4,14 +4,20 @@ import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
 import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.block.Block;
 import net.minecraft.item.ItemStack;
+import net.minecraft.nbt.NbtElement;
+import net.minecraft.nbt.NbtOps;
+import net.minecraft.nbt.StringNbtReader;
 import net.minecraft.recipe.Ingredient;
 import net.minecraft.recipe.Recipe;
 import net.minecraft.recipe.RecipeEntry;
@@ -26,6 +32,7 @@ import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 import net.minecraft.util.Identifier;
+import net.minecraft.util.WorldSavePath;
 import net.minecraft.util.math.BlockPos;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,9 +40,11 @@ import org.slf4j.LoggerFactory;
 import java.lang.reflect.Method;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.UUID;
 import java.util.stream.Stream;
 
 /**
@@ -69,6 +78,14 @@ public final class GenericSidecarMod implements ModInitializer {
             register(station);
         }
         ServerTickEvents.END_SERVER_TICK.register(GenericSidecarMod::tick);
+        // 熟成任务在内存里：服务器重启/关服会让没走完的熟成丢料（玩家已经交过材料）。
+        // 存到存档目录，启动时按玩家 UUID 恢复；离线玩家跳过并记日志。
+        ServerLifecycleEvents.SERVER_STARTED.register(GenericSidecarMod::loadJobs);
+        ServerLifecycleEvents.SERVER_STOPPING.register(GenericSidecarMod::saveJobs);
+        // 恢复的任务在启动那一刻没人上线（玩家清单是空的）。挂起等玩家进来再绑定，
+        // 否则会把所有未完成的任务当成"玩家离线"丢掉——实测踩过。
+        ServerPlayConnectionEvents.JOIN.register((handler, sender, server) ->
+                attachPending(handler.getPlayer()));
         LOG.info("[modsmith-sidecar] {} station(s) ready: {}", stations.size(),
                 stations.stream().map(s -> "/" + s.command).toList());
     }
@@ -135,7 +152,8 @@ public final class GenericSidecarMod implements ModInitializer {
 
         int cookTime = cookTimeOf(recipe, station.cookTime);
         ItemStack result = recipe.getResult(server.getRegistryManager()).copy();
-        JOBS.add(new CookJob(player, result, cookTime));
+        JOBS.add(new CookJob(player, player.getUuid(), result, cookTime));
+        saveJobs(server);
         LOG.info("[{}] {} cooking {} ({} ticks)", station.command, player.getName().getString(), id, cookTime);
         source.sendFeedback(() -> Text.literal(
                 "started " + result.getName().getString() + ", about " + (cookTime / 20) + "s"), false);
@@ -185,22 +203,114 @@ public final class GenericSidecarMod implements ModInitializer {
         if (JOBS.isEmpty()) {
             return;
         }
+        boolean changed = false;
         Iterator<CookJob> it = JOBS.iterator();
         while (it.hasNext()) {
             CookJob job = it.next();
+            if (job.player == null) {
+                // 挂起中（等玩家上线）：不推进、不删除。玩家一直不来就留在内存里，
+                // 体量极小（每条一个 ItemStack + 一个 int）。
+                continue;
+            }
             if (job.player.isRemoved()) {
-                it.remove();
+                // 玩家中途离线：材料已经扣了。任务退回挂起态（等他回来接着算），
+                // 不能直接删——删了就是白吞材料（实测踩过：断线 6 秒两份菜全没了）。
+                job.player = null;
+                changed = true;
                 continue;
             }
             if (--job.remaining > 0) {
                 continue;
             }
             it.remove();
+            changed = true;
             ItemStack out = job.output.copy();
             if (!job.player.getInventory().insertStack(out)) {
                 job.player.dropItem(out, false);
             }
             job.player.sendMessage(Text.literal("ready: " + job.output.getName().getString()), false);
+        }
+        if (changed) {
+            saveJobs(server);
+        }
+    }
+
+    // ---- 熟成任务持久化 ----
+
+    private static Path jobsFile(MinecraftServer server) {
+        return server.getSavePath(WorldSavePath.ROOT).resolve("modsmith-sidecar-jobs.json");
+    }
+
+    /** 把 JOBS 写成 JSON（玩家 UUID + 剩余 tick + 产物 SNBT）。写失败只记日志，不影响熟成。 */
+    private static void saveJobs(MinecraftServer server) {
+        try {
+            JsonArray arr = new JsonArray();
+            for (CookJob job : JOBS) {
+                JsonObject o = new JsonObject();
+                o.addProperty("player", job.player != null ? job.player.getUuidAsString() : job.pendingPlayer.toString());
+                o.addProperty("remaining", job.remaining);
+                NbtElement nbt = ItemStack.CODEC
+                        .encodeStart(server.getRegistryManager().getOps(NbtOps.INSTANCE), job.output)
+                        .result().orElse(null);
+                if (nbt == null) {
+                    continue;
+                }
+                o.addProperty("item", nbt.toString());
+                arr.add(o);
+            }
+            JsonObject root = new JsonObject();
+            root.add("jobs", arr);
+            Path file = jobsFile(server);
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, new Gson().toJson(root), StandardCharsets.UTF_8);
+        } catch (Exception err) {
+            LOG.warn("[modsmith-sidecar] could not save jobs: {}", err.toString());
+        }
+    }
+
+    /** 玩家上线：把挂起中（player == null）的同 UUID 任务绑到他身上。 */
+    private static void attachPending(ServerPlayerEntity player) {
+        int n = 0;
+        for (CookJob job : JOBS) {
+            if (job.player == null && job.pendingPlayer.equals(player.getUuid())) {
+                job.player = player;
+                n += 1;
+            }
+        }
+        if (n > 0) {
+            LOG.info("[modsmith-sidecar] {} pending job(s) resumed for {}", n, player.getName().getString());
+        }
+    }
+
+    /** 启动时恢复熟成任务；玩家不在线就挂起，等 JOIN 时绑定。 */
+    private static void loadJobs(MinecraftServer server) {
+        Path file = jobsFile(server);
+        if (!Files.isRegularFile(file)) {
+            return;
+        }
+        try {
+            JsonObject root = JsonParser.parseString(Files.readString(file, StandardCharsets.UTF_8)).getAsJsonObject();
+            JsonArray arr = root.getAsJsonArray("jobs");
+            int restored = 0;
+            int dropped = 0;
+            for (JsonElement el : arr) {
+                JsonObject o = el.getAsJsonObject();
+                UUID uuid = UUID.fromString(o.get("player").getAsString());
+                ServerPlayerEntity player = server.getPlayerManager().getPlayer(uuid);
+                ItemStack stack = ItemStack.CODEC
+                        .parse(server.getRegistryManager().getOps(NbtOps.INSTANCE), StringNbtReader.parse(o.get("item").getAsString()))
+                        .result().orElse(ItemStack.EMPTY);
+                if (stack.isEmpty()) {
+                    dropped += 1;
+                    continue;
+                }
+                JOBS.add(new CookJob(player, uuid, stack, Math.max(1, o.get("remaining").getAsInt())));
+                restored += 1;
+            }
+            LOG.info("[modsmith-sidecar] restored {} job(s) (pending until the player joins), dropped {} (bad item)",
+                    restored, dropped);
+        } catch (Exception err) {
+            LOG.warn("[modsmith-sidecar] could not load jobs: {}", err.toString());
         }
     }
 
@@ -413,12 +523,15 @@ public final class GenericSidecarMod implements ModInitializer {
     }
 
     private static final class CookJob {
-        final ServerPlayerEntity player;
+        /** 在线时非 null；从存档恢复、玩家还没进来时为 null（见 pendingPlayer）。 */
+        ServerPlayerEntity player;
+        final UUID pendingPlayer;
         final ItemStack output;
         int remaining;
 
-        CookJob(ServerPlayerEntity player, ItemStack output, int remaining) {
+        CookJob(ServerPlayerEntity player, UUID pendingPlayer, ItemStack output, int remaining) {
             this.player = player;
+            this.pendingPlayer = pendingPlayer;
             this.output = output;
             this.remaining = remaining;
         }

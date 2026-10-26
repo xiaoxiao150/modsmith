@@ -156,6 +156,53 @@ export default async function cmdVerify(args, io) {
     if (missing.length > 0) add('recipe', true, `推不出来（会当"做不了"跳过）：${missing.join(', ')}`);
   }
 
+  // ---- 4) 站点能执行（--stations）----
+  //
+  // 这是 L3 的验收：光"知道有工作站"不算，要真的放材料、发命令、拿到产物。
+  // 只验 sidecar-recipe 型（服务端代做）；two-step 需要模拟右键，另说。
+  if (args.stations === true) {
+    const stations = (manifest.stations ?? []).filter((st) => st.kind === 'sidecar-recipe' && st.recipeType);
+    if (stations.length === 0) add('station', false, '没有 sidecar-recipe 站点可验（先跑 learn --infer）');
+    for (const st of stations) {
+      const recipes = (manifest.recipes ?? []).filter((r) => r.type === st.recipeType && r.result?.id);
+      if (recipes.length === 0) {
+        add('station', false, `${st.id}：manifest 里没有 ${st.recipeType} 的配方`);
+        continue;
+      }
+      const rec = recipes[0];
+      const pos = { x: bx + 2, y: by, z: bz };
+      const placed = await cmd(`setblock ${pos.x} ${pos.y} ${pos.z} ${st.block}`);
+      if (/failed|unknown|invalid/i.test(placed)) {
+        add('station', false, `${st.id}：方块放不下（${placed.slice(0, 60)}）`);
+        continue;
+      }
+      await cmd(`clear ${username}`);
+      const wanted = [];
+      for (const cell of rec.ingredients ?? []) {
+        const name = cell?.[0]?.id;
+        if (name) { wanted.push(name); await cmd(`give ${username} ${name} 1`); }
+      }
+      await sleep(400);
+      const cmdName = String(st.command ?? `/${st.id} cook {recipe}`).replace(/^\//, '').split(' ')[0];
+      bot.chat(`/${cmdName} cook ${rec.id}`);
+      const cookMs = (Number(st.cookTime) || Number(rec.cooking_time) || 200) * 50 + 4000;
+      const deadline = Date.now() + cookMs;
+      let got = null;
+      while (!got && Date.now() < deadline) {
+        const list = bot.inventory?.items?.() ?? [];
+        const short = String(rec.result.id).split(':').pop();
+        got = list.find((it) => it.name === rec.result.id || it.name === short) ?? null;
+        if (!got) await sleep(250);
+      }
+      const cost = wanted.length ? `（材料 ${wanted.length} 种）` : '';
+      add('station', !!got, got
+        ? `${st.id}：${rec.id}${cost} → ${got.name}`
+        : `${st.id}：命令发出后 ${Math.round(cookMs / 1000)}s 内没拿到 ${rec.result.id}${cost}`);
+      await cmd(`setblock ${pos.x} ${pos.y} ${pos.z} minecraft:air`);
+      await sleep(200);
+    }
+  }
+
   await cmd(`fill ${bx - 4} ${by} ${bz - 4} ${bx + 4} ${by + 4} ${bz + 4} minecraft:air`);
   await cmd(`forceload remove ${bx - 8} ${bz - 8} ${bx + 8} ${bz + 8}`);
   await sleep(300);

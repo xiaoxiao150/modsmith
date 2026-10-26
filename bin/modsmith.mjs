@@ -111,6 +111,7 @@ const USAGE = `modsmith ${VERSION} — 把 Fabric mod jar 变成机器人能用�
       --no-probe             不做实测验证，只做结构校验
       --timeout <ms>         每次右键等多久，默认 3000
       --mods-dir <dir>       注册表注入用，默认 ./mods
+      --stations             额外验收工作站：放材料、发命令、断言产物（L3）
       模型走环境变量：MODSMITH_BASE_URL / MODSMITH_API_KEY / MODSMITH_MODEL
 
   modsmith sidecar <manifest.json> [选项]

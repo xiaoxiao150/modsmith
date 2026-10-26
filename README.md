@@ -17,14 +17,16 @@ from a live server you own (OP + RCON required) and keeps the mapping
 fingerprinted. Docs are Chinese-first; this README and `AGENTS.md` carry the
 full design notes.
 
-## 状态（0.3.0 预览）
+## 状态（0.4.0 预览）
 
 - **L1 完成**：单包接入（Farmer's Delight 3.3.6）从 jar 到机器人可用的清单与 ids，生产在用。
 - **L2 基本完成**："换一个 mod 只要几条命令 + 审一张表"。暮色森林 4.8.629 实测：
   2134 条配方全解析、17 个自定义序列化器自动发现，不需要 javap；农夫乐事端到端
   `onboard` 通过（发现 → `--accept` → 修订单）。缺口：线上同形的语义拆分
   （`i32`/`f32`、`string`/`varints`）仍需人按备选表拍板——协议本身丢了信息。
-- **L3 未开始**：`learn`/`sidecar` 的自动化（站点生成、侧车安装评估）。
+- **L3 进行中**：规则推断工作站（`learn --infer`，不需要模型）、`verify --stations`
+  真做一份菜、侧车熟成任务可跨断线/重启恢复。剩下的是"两站式（两步放置/取出）的
+  自动执行"和安装评估。
 - **0.x 期间 manifest / sidesheet 格式可能发生破坏性变更**，会尽量在 README 里标注。
 
 ## 前置条件
@@ -163,16 +165,46 @@ modsmith verify ./out/somemod-1.21.1-1.0.0.json --pack somemod-1.21.1-1.0.0 \
 
 ## 为什么有 `learn` 这一步
 
-静态分析能告诉你"有哪些方块、什么配方"，但**不能**告诉你"这个方块是工作站、要放料进去再
-取产物"。那属于玩法语义，jar 里没有。
+静态分析能告诉你"有哪些方块、什么配方"，但**不能**直接告诉你"这个方块是工作站、要放料
+进去再取产物"。那属于玩法语义，jar 里没有原文。
 
-`learn` 让 LLM 读清单（+ 可选 mcmod 页面）判断每个站点属于哪种机制，产出结构化数据。
+**默认路径是规则推断，不需要模型**（`learn --infer`）：
+
+| 证据 | 结论 |
+|---|---|
+| 自定义配方类型（`farmersdelight:cooking`） | 一定存在加工行为 |
+| 配方里的显式 `tool` 字段有共同后缀（47 条配方都是 `*_knife`） | `two-step-use` |
+| 方块名对得上配方类型词干（`cooking`→`cooking_pot`，不是 `stove`） | 站点方块 |
+| `probe` 实测到**自定义**界面 | `sidecar-recipe`（私有菜单机器人开不了） |
+| `probe` 实测确认不开窗，且类型是被动型（`drying`） | `place-and-wait` |
+
+推断结果一律带 `needsReview: true`——机制判错下游会一直白试，所以让人扫一眼再采信。
+农夫乐事实测：`cooking_pot`（侧车）+ `cutting_board`（两步，`_knife`），与手工标注一致。
+
+`learn`（不带 `--infer`）则是 LLM 路径：读清单（+ 可选 mcmod 页面）判断机制，产出
+同一种结构化数据，还要过实测回炉。
 **LLM 只写数据，不写代码**——机器人的技能是封闭的 TS 联合类型，运行时注册不了新技能，
 让模型生成代码必然失败。所以这里的产出永远是 JSON，并且会被校验：
 
 - 机制名必须是那三种之一
 - 方块必须真的在 manifest 里
 - sidecar 的命令必须带 `{recipe}` 占位符
+
+## 工作站真的能跑吗（`verify --stations`）
+
+光"知道哪个方块是工作站"不算完。`verify --stations` 会真的执行一遍：放材料 → 发命令
+→ 等到产物进背包。农夫乐事实测：
+
+```
+✓ [station] cooking_pot：farmersdelight:cooking/pasta_with_meatballs（材料 3 种）
+             → farmersdelight:pasta_with_meatballs
+```
+
+侧车的熟成任务会存到 `<world>/modsmith-sidecar-jobs.json`，三种情况都验过：
+
+- 正常熟成：产物到手
+- 玩家中途断线：任务退回挂起（材料已扣，不能白吞），重连后接着计时
+- 服务器重启：启动时恢复为挂起，玩家一进来就绑定继续
 
 ## 为什么有 `sidecar` 这一步
 
