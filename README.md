@@ -200,6 +200,16 @@ modsmith verify ./out/somemod-1.21.1-1.0.0.json --pack somemod-1.21.1-1.0.0 \
              → farmersdelight:pasta_with_meatballs
 ```
 
+两步式站点（放料 → 换工具 → 右键）也走真实交互，不是发命令：
+
+```
+✓ [station] cutting_board（两步）：minecraft:beef + farmersdelight:flint_knife
+             → farmersdelight:minced_beef
+```
+
+右键用原生 `block_place` 包发（`bot.activateBlock` 对没有注册交互行为的模组方块会一直
+不返回——实测卡过两分钟），带了 3 秒兜底。
+
 侧车的熟成任务会存到 `<world>/modsmith-sidecar-jobs.json`，三种情况都验过：
 
 - 正常熟成：产物到手

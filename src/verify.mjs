@@ -158,13 +158,69 @@ export default async function cmdVerify(args, io) {
 
   // ---- 4) 站点能执行（--stations）----
   //
-  // 这是 L3 的验收：光"知道有工作站"不算，要真的放材料、发命令、拿到产物。
-  // 只验 sidecar-recipe 型（服务端代做）；two-step 需要模拟右键，另说。
+  // 这是 L3 的验收：光"知道有工作站"不算，要真的动手拿到产物。
+  //   - sidecar-recipe：放材料 → 发命令 → 等产物（服务端代做）
+  //   - two-step-use：放料 → 换工具 → 右键 → 等产物（真实交互，机器人会做的动作）
   if (args.stations === true) {
-    const stations = (manifest.stations ?? []).filter((st) => st.kind === 'sidecar-recipe' && st.recipeType);
-    if (stations.length === 0) add('station', false, '没有 sidecar-recipe 站点可验（先跑 learn --infer）');
+    const stations = (manifest.stations ?? []).filter((st) =>
+      (st.kind === 'sidecar-recipe' || st.kind === 'two-step-use') && st.recipeType);
+    if (stations.length === 0) add('station', false, '没有可执行的站点（先跑 learn --infer）');
+
+    // 两步式站点：需要把物品放上去、再手持工具右键。用真实交互而不是命令，
+    // 这样验的是"机器人能不能做得到"，不是"服务端能不能代做"。
+    const dropAt = async (name) => {
+      // 手上拿着料右键方块：先把别的清掉，只留这一件，保证 equip 拿到的是它
+      await cmd(`clear ${username}`);
+      await cmd(`give ${username} ${name} 1`);
+      const pick = () => (bot.inventory?.items?.() ?? []).find((it) => it.name === name || it.name === name.split(':')[1]);
+      let item = null;
+      const dl = Date.now() + 2000;
+      while (!item && Date.now() < dl) { item = pick(); if (!item) await sleep(100); }
+      return item;
+    };
+    /**
+     * 右键方块。activateBlock 会等"服务端确认"——对方块没有注册交互行为时它永远不返回
+     * （实测卡死两分钟）。所以三种手段按顺序试，每个都有超时：
+     *   1) 原生 block_place 包（最接近真实玩家，不依赖 mineflayer 的交互封装）
+     *   2) activateBlock（给有 vanilla 容器行为的方块兜底）
+     */
+    const rightClickBlock = async (blockPos) => {
+      const block = bot.blockAt(new Vec3(blockPos.x, blockPos.y, blockPos.z));
+      if (!block) return { ok: false, why: 'blockAt 读不到' };
+      try {
+        bot._client.write('block_place', {
+          location: blockPos, direction: 1, hand: 0,
+          cursorX: 0.5, cursorY: 1, cursorZ: 0.5, insideBlock: false, sequence: 0,
+        });
+        await sleep(400);
+        return { ok: true, via: 'block_place' };
+      } catch { /* 落到 activateBlock */ }
+      try {
+        await Promise.race([
+          bot.activateBlock(block),
+          sleep(3000).then(() => { throw new Error('activateBlock 3s 无响应'); }),
+        ]);
+        return { ok: true, via: 'activateBlock' };
+      } catch (err) {
+        return { ok: false, why: String(err.message ?? err).slice(0, 80) };
+      }
+    };
+    const waitItem = async (id, ms) => {
+      const short = String(id).split(':').pop();
+      const dl = Date.now() + ms;
+      for (;;) {
+        const hit = (bot.inventory?.items?.() ?? []).find((it) => it.name === id || it.name === short);
+        if (hit) return hit;
+        if (Date.now() > dl) return null;
+        await sleep(250);
+      }
+    };
+
     for (const st of stations) {
-      const recipes = (manifest.recipes ?? []).filter((r) => r.type === st.recipeType && r.result?.id);
+      // 产物可能挂在 result（单个）或 results[]（多产物，如 cutting）。两种都要认，
+      // 否则 105 条 cutting 配方会被一条都筛不出来（实测）。
+      const recipes = (manifest.recipes ?? []).filter((r) =>
+        r.type === st.recipeType && (r.result?.id || (Array.isArray(r.results) && r.results[0]?.id)));
       if (recipes.length === 0) {
         add('station', false, `${st.id}：manifest 里没有 ${st.recipeType} 的配方`);
         continue;
@@ -176,6 +232,52 @@ export default async function cmdVerify(args, io) {
         add('station', false, `${st.id}：方块放不下（${placed.slice(0, 60)}）`);
         continue;
       }
+
+      if (st.kind === 'two-step-use') {
+        // 两步式：先放料（右键），再换工具（右键）。
+        const first = rec.ingredients?.[0]?.id;
+        const toolList = (rec.tool ?? []).map((t) => t.id).filter(Boolean);
+        if (!first || toolList.length === 0) {
+          add('station', false, `${st.id}：配方缺 ingredients[0] 或 tool，没法执行`);
+          await cmd(`setblock ${pos.x} ${pos.y} ${pos.z} minecraft:air`);
+          continue;
+        }
+        await cmd(`setblock ${pos.x} ${pos.y - 1} ${pos.z} minecraft:stone`);
+        const item = await dropAt(first);
+        if (!item) {
+          add('station', false, `${st.id}：拿不到材料 ${first}`);
+          await cmd(`setblock ${pos.x} ${pos.y} ${pos.z} minecraft:air`);
+          continue;
+        }
+        try { await bot.equip(item, 'hand'); } catch { /* 拿在手上失败也继续：activateBlock 会告诉结果 */ }
+        const put = await rightClickBlock(pos);
+        if (!put.ok) add('station', false, `${st.id}：放料时右键失败（${put.why}）`);
+
+        // 换工具：优先那个后缀对得上的（站点声明了 toolSuffix）
+        await sleep(500);
+        let toolItem = null;
+        for (const t of toolList) {
+          toolItem = await dropAt(t);
+          if (toolItem) break;
+        }
+        if (!toolItem) {
+          add('station', false, `${st.id}：材料放了，但一件工具都拿不到（${toolList.slice(0, 3).join(', ')}…）`);
+          await cmd(`setblock ${pos.x} ${pos.y} ${pos.z} minecraft:air`);
+          continue;
+        }
+        try { await bot.equip(toolItem, 'hand'); } catch { /* */ }
+        const proc = await rightClickBlock(pos);
+        if (!proc.ok) add('station', false, `${st.id}：开工右键失败（${proc.why}）`);
+        const expect = rec.results?.[0]?.id ?? rec.result?.id;
+        const got = expect ? await waitItem(expect, 8000) : null;
+        add('station', !!got, got
+          ? `${st.id}（两步）：${first} + ${toolItem.name} → ${got.name}`
+          : `${st.id}（两步）：${first} + ${toolItem.name} 右键后没拿到 ${expect ?? '产物'}`);
+        await cmd(`setblock ${pos.x} ${pos.y} ${pos.z} minecraft:air`);
+        await sleep(200);
+        continue;
+      }
+
       await cmd(`clear ${username}`);
       const wanted = [];
       for (const cell of rec.ingredients ?? []) {

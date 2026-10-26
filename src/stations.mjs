@@ -142,7 +142,12 @@ export function inferStations(manifest, opts = {}) {
       _type: type,
       _recipes: recipes.length,
     };
-    if (kind === 'two-step-use') st.toolSuffix = tool.suffix;
+    if (kind === 'two-step-use') {
+      st.toolSuffix = tool.suffix;
+      // 两步式也要能查出"这个站点对应哪些配方"：verify 要挑一条真的做一遍。
+      // 类型名不在 wire 上就靠这个字段回连到 manifest.recipes。
+      st.recipeType = type;
+    }
     if (kind === 'place-and-wait') st.slots = 1;
     if (kind === 'sidecar-recipe') {
       st.command = `/${id} cook {recipe}`;
