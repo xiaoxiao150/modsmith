@@ -5,6 +5,14 @@
   "type": "module",
   "license": "MIT",
   "author": "modsmith contributors",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xiaoxiao150/modsmith.git"
+  },
+  "homepage": "https://github.com/xiaoxiao150/modsmith#readme",
+  "bugs": {
+    "url": "https://github.com/xiaoxiao150/modsmith/issues"
+  },
   "keywords": [
     "minecraft",
     "mineflayer",
