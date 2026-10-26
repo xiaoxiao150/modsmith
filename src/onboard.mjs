@@ -80,7 +80,9 @@ export function onboardPlan(opts) {
       //   - verify 的站点执行要用服务端真配方（cooking_time、多原料、results[] 形状）
       // --server-mods 要给 recipes：discover 从服务器所有 jar + 原版 jar 扫配方名，
       // 名字清单越全，切段越准（缺了它，新 mod 的发现会卡在名字缺口上）。
-      step('recipes', '服务端真配方翻进清单', ['recipes', manifestPath, '--ids', idsPath,
+      // --ids-all：同一台服上第二个包翻译时必然碰到别的包的物品（捕获是整服配方）。
+      // 只有一份 ids 时它是空操作；多份时按指纹闸拒绝混用不同 jar 组合的量测。
+      step('recipes', '服务端真配方翻进清单', ['recipes', manifestPath, '--ids', idsPath, '--ids-all', modsDir,
         ...(srv.serverMods ? ['--server-mods', String(srv.serverMods)] : []),
         ...(dryRecipes ? [] : ['--write'])], Boolean(artifacts.serverRecipes), false),
       // 推断工作站：规则优先，不需要模型；有 probe 证据就用证据。

@@ -17,7 +17,7 @@ from a live server you own (OP + RCON required) and keeps the mapping
 fingerprinted. Docs are Chinese-first; this README and `AGENTS.md` carry the
 full design notes.
 
-## 状态（0.4.2 预览）
+## 状态（0.5.0 预览）
 
 - **L1 完成**：单包接入（Farmer's Delight 3.3.6）从 jar 到机器人可用的清单与 ids，生产在用。
 - **L2 基本完成**："换一个 mod 只要几条命令 + 审一张表"。暮色森林 4.8.629 实测：
@@ -28,6 +28,13 @@ full design notes.
   `verify --stations` 三种机制都真执行（侧车 / 多原料两步 / 被动掉落）、侧车熟成任务
   可跨断线/重启恢复、`probe --scan-blocks` 全量窗口扫描、单方块可服务多种配方类型、
   `onboard` 七步一条龙。
+- **L4/L5 完成（0.5.0）**：宿主侧按清单执行三种站点机制（`cook` 读 place-and-wait 站点、
+  `cut` 支持多原料、`recipeTypes` 多类型）；真实 AI 在生存服里自主做出牛肉炖
+  （取料 → 砧板切牛肉 → 厨锅出餐），全程只靠清单数据。
+- **多包共存**：捕获的配方是整服快照，`recipes --ids-all` 合并各包 ids（指纹闸拒绝
+  混用不同 jar 组合的量测）；宿主按配方 id 跨包去重、累积安装，不再只认第一个包。
+- **`learn --infer` 默认合并人工站点**：命令/机制一字不动，只补 `recipeType`/`toolSuffix`
+  并追加新站点；整段重推必须 `--force`。
 - **0.x 期间 manifest / sidesheet 格式可能发生破坏性变更**，会尽量在 README 里标注。
 
 ## 前置条件
@@ -277,6 +284,43 @@ learn（规则推断）→ verify（含站点实测）→ sidecar。`recipes` �
 **命令只在编译成功后才写回清单。** 没编译成功的站点，清单保持原样——否则机器人会去调
 一个根本不存在的命令，表现为「发出去没人应答」，几秒后才超时，比报错难查得多。
 `--no-build` 默认不写回；确实要写就加 `--write-command`，它会在输出里明确警告「没验过」。
+
+### 把侧车装到服务器（人来做）
+
+1. `sidecars/.build/build/libs/modsmith-sidecar-<ver>.jar` → 服务器 `mods/`
+2. `sidecars/<pack>/config/modsmith-sidecar/<pack>.json` → 服务器 `config/modsmith-sidecar/`
+3. 重启服务器；进游戏执行 `/<command> list`，能列出配方就是通了
+4. 先在临时服验一遍再上生产——侧车会真的查配方、扣料、出货
+
+侧车**不会**被 `modsmith` 自动安装到任何服务器；装上去等于让服务端执行新代码，必须人拍板。
+服务器重启/区块卸载前没熟完的批次会丢（熟成队列在内存里，见
+`templates/sidecar-generic/README.md`）。
+
+## 换了 mod / 加了 mod 之后（ids 重跑）
+
+数字 id 是**服务端注册顺序**的产物：随便加一个 jar，已有模组的方块/物品 id 都会整体位移。
+所以「换 mod」不是重跑那一个包，而是这台服务器上**每个包**都要重来一遍：
+
+```bash
+# 1) 每个包按当前 mods 目录重新量（先停服再起一个干净的开发服）
+modsmith calibrate mods/<packA>.json --out mods/<packA>-ids.json --server-mods <server>/mods ...
+modsmith calibrate mods/<packB>.json --out mods/<packB>-ids.json --server-mods <server>/mods ...
+
+# 2) 配方翻译要能看到整台服务器的物品（捕获的是整服配方）
+modsmith recipes mods/<packA>.json --ids-all mods --write
+modsmith recipes mods/<packB>.json --ids-all mods --write
+
+# 3) 站点与验收
+modsmith learn mods/<packA>.json --infer --evidence mods/<packA>-probe.json
+modsmith verify mods/<packA>.json --stations ...
+```
+
+`--ids-all` 自带指纹闸：各份 ids 的 `serverMods.fingerprint` 不一致（= 不是在同一套 jar
+组合下量的）会直接拒绝，不会把整体位移的 id 合进去。宿主加载时也会按指纹拒绝过期 ids。
+
+**一个服务器上装多个包时**，每份清单都是对整服配方的快照（会有重叠）。宿主按配方 id
+去重、累积多个包，不会重复挂同一配方；但这也意味着**只重跑一个包的 ids 不够**——
+指纹对不上，另一个包会被宿主拒绝加载。
 
 ## 作物推断的边界
 

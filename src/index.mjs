@@ -28,4 +28,4 @@ export {
   discoverSerializers, sidesheetFromDiscovery,
 };
 
-export const VERSION = '0.4.2';
+export const VERSION = '0.5.0';
