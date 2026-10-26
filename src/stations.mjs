@@ -161,3 +161,59 @@ export function inferStations(manifest, opts = {}) {
 
   return { stations, notes, skipped };
 }
+
+/**
+ * 挑"值得右键一次"的方块。全量扫 500 个方块太慢，而绝大多数方块右键什么都不会发生。
+ *
+ * 取舍：
+ *   - 已在 containers 里的不用扫（probe 的容器流程已经测过）
+ *   - 多状态方块（楼梯/栅栏/门）跳过：交互行为与状态无关，扫默认态就够，但它们
+ *     数量最多，且几乎都是纯装饰
+ *   - 明摆着不是交互方块的按名字排除（叶/原木/矿石/台阶/墙/地毯/作物）
+ *
+ * @returns {{candidates: string[], skipped: {decorative: number, container: number, multiState: number}}}
+ */
+export function scanCandidates(manifest, { limit = 400 } = {}) {
+  const containers = new Set(manifest.containers ?? []);
+  const stationBlocks = new Set((manifest.stations ?? []).map((s) => s.block));
+  const DECOR = /_(leaves|log|wood|planks|slab|stairs|wall|fence|fence_gate|carpet|door|trapdoor|button|pressure_plate|sign|banner|torch|lantern|ore|crop|seed|sapling|flower|grass|fern|vine|roots|mushroom_block|bud|petals|dripleaf|kelp|coral)$/;
+  const candidates = [];
+  const stationCandidate = [];
+  let container = 0;
+  let multiState = 0;
+  let decorative = 0;
+  for (const [name, spec] of Object.entries(manifest.blocks ?? {})) {
+    if (containers.has(name)) { container += 1; continue; }
+    // 已经是站点的方块**也要扫**：`inferStations` 的核心就是用实测开窗行为决定
+    // 机制（有私有 GUI 就必须走侧车）。probe 的站点流程只验"声明 vs 实测"，不给
+    // 推断提供证据。不扫它们，扫描结果对站点判断毫无帮助（FD 实测：两个站点都被跳过，
+    // 带不带证据结果完全一样）。
+    if (stationBlocks.has(name)) { stationCandidate.push(name); continue; }
+    const states = spec?.states ?? [];
+    if (states.length > 2) { multiState += 1; continue; }
+    if (DECOR.test(shortName(name))) { decorative += 1; continue; }
+    candidates.push(name);
+    if (candidates.length >= limit) break;
+  }
+  // 站点优先测：数量少、信息量大（决定机制），放最前面。
+  return { candidates: [...new Set([...stationCandidate, ...candidates])], skipped: { container, multiState, decorative } };
+}
+
+/**
+ * 从 probe 的 `--scan-blocks` 结果里取出 `inferStations` 要的证据格式。
+ *
+ * probe 的输出把每个方块的观测记在 `blockScan.evidence[方块名]`；
+ * `inferStations(manifest, {evidence})` 只关心 `opensWindow` 与 `windowType`。
+ * 没测成（放不下去）的方块不出现在证据里——那属于"未知"，不能当成"不开窗"。
+ */
+export function evidenceFromProbe(probeOut) {
+  const evidence = {};
+  for (const [name, ev] of Object.entries(probeOut?.blockScan?.evidence ?? {})) {
+    if (!ev || ev.placed === false) continue;
+    evidence[name] = {
+      opensWindow: ev.opensWindow === true,
+      ...(ev.windowType ? { windowType: ev.windowType } : {}),
+    };
+  }
+  return evidence;
+}

@@ -103,3 +103,73 @@ test('inferStations：实测到自定义界面 → 即使有工具也走侧车�
   assert.equal(board.kind, 'sidecar-recipe');
   assert.equal(board.recipeType, 'testmod:cutting');
 });
+
+// ---------- 扫描候选与证据 ----------
+
+test('scanCandidates：跳过容器、多状态、明显装饰；站点优先、可疑方块保留', async () => {
+  const { scanCandidates } = await import('../src/stations.mjs');
+  const m = {
+    containers: ['m:chest'],
+    blocks: {
+      'm:chest': { states: [{}] },
+      'm:oak_stairs': { states: [{}, {}, {}, {}] },
+      'm:oak_leaves': { states: [{}] },
+      'm:crate': { states: [{}] },
+      'm:weird_machine': { states: [{}] },
+      'm:known_station': { states: [{}] },
+    },
+    stations: [{ id: 'ks', kind: 'two-step-use', block: 'm:known_station' }],
+  };
+  const { candidates, skipped } = scanCandidates(m);
+  // 已知站点排在最前（它们决定机制，必须先测），其余是可疑方块
+  assert.deepEqual(candidates.sort(), ['m:crate', 'm:known_station', 'm:weird_machine']);
+  assert.equal(skipped.container, 1);
+  assert.equal(skipped.multiState, 1);
+  assert.equal(skipped.decorative, 1);
+});
+
+test('evidenceFromProbe：没测成的方块不进证据（未知 ≠ 不开窗）', async () => {
+  const { evidenceFromProbe } = await import('../src/stations.mjs');
+  const ev = evidenceFromProbe({
+    blockScan: {
+      evidence: {
+        'm:a': { placed: true, opensWindow: true, windowType: 'm:custom_gui' },
+        'm:b': { placed: true, opensWindow: false },
+        'm:c': { placed: false, error: '放不下去' },
+      },
+    },
+  });
+  assert.deepEqual(Object.keys(ev).sort(), ['m:a', 'm:b']);
+  assert.equal(ev['m:a'].windowType, 'm:custom_gui');
+  assert.equal(ev['m:b'].opensWindow, false);
+});
+
+test('证据优先：实测到自定义界面 → 改成侧车；实测不开窗的干燥架 → 被动加工', async () => {
+  const { inferStations } = await import('../src/stations.mjs');
+  const m = {
+    mod: 'm', namespace: 'm', containers: [], blocks: {
+      'm:cooking_pot': {}, 'm:cutting_board': {}, 'm:drying_rack': {},
+    },
+    items: { 'm:iron_knife': {}, 'm:gold_knife': {} },
+    recipes: [
+      { id: 'm:cooking/a', type: 'm:cooking', ingredients: [[{ id: 'minecraft:beef' }]] },
+      { id: 'm:cutting/a', type: 'm:cutting', ingredients: [[{ id: 'minecraft:beef' }]], tool: [{ id: 'm:iron_knife' }, { id: 'm:gold_knife' }] },
+      { id: 'm:cutting/b', type: 'm:cutting', ingredients: [[{ id: 'minecraft:pork' }]], tool: [{ id: 'm:iron_knife' }, { id: 'm:gold_knife' }] },
+      { id: 'm:drying/a', type: 'm:drying', ingredients: [[{ id: 'minecraft:kelp' }]] },
+    ],
+  };
+  // 没有证据时：cutting 有工具 → 两步式；cooking 无工具 → 侧车
+  const plain = inferStations(m);
+  assert.equal(plain.stations.find((s) => s.block === 'm:cutting_board').kind, 'two-step-use');
+  assert.equal(plain.stations.find((s) => s.block === 'm:cooking_pot').kind, 'sidecar-recipe');
+
+  // 实测说 cutting_board 自己弹菜单：机器人开不了 → 侧车
+  const withGui = inferStations(m, { evidence: { 'm:cutting_board': { opensWindow: true, windowType: 'm:cutting_menu' } } });
+  const board = withGui.stations.find((s) => s.block === 'm:cutting_board');
+  assert.equal(board.kind, 'sidecar-recipe');
+  assert.equal(board.recipeType, 'm:cutting');
+
+  // 实测说 drying_rack 不开窗：被动加工
+  const withPassive = inferStations(m, { evidence: { 'm:drying_rack': { opensWindow: false } } });
+  assert.equal(withPassive.stations.find((s) => s.block === 'm:drying_rack').kind, 'place-and-wait');
+});

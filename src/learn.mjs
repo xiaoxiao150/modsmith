@@ -265,7 +265,19 @@ export async function learn(manifestPath, { ask, probe, rounds = 3, wikiText = '
 export async function learnStations(manifestPath, opts = {}, io) {
   const manifest = readManifest(manifestPath);
   if (!manifest) io.fatal(`读不了 manifest：${manifestPath}`);
-  const { stations, notes, skipped } = inferStations(manifest, opts);
+  // 证据可以来自 probe 的输出文件（--evidence），比命名/工具推断可靠得多：
+  // 一个叫 *_machine 的纯装饰方块，只有实测知道它右键什么都不做。
+  let evidence = opts.evidence ?? null;
+  if (opts.evidencePath) {
+    const probed = readManifest(opts.evidencePath);
+    if (!probed) io.fatal(`读不了证据文件：${opts.evidencePath}`);
+    const { evidenceFromProbe } = await import('./stations.mjs');
+    evidence = evidenceFromProbe(probed);
+    const n = Object.keys(evidence).length;
+    console.error(`  证据：${n} 个方块的右键行为（${Object.values(evidence).filter((e) => e.opensWindow).length} 个开窗）`);
+    if (n === 0) console.error('  ! 证据文件里没有 blockScan——probe 时加 --scan-blocks 才有');
+  }
+  const { stations, notes, skipped } = inferStations(manifest, { evidence });
 
   for (const line of notes) console.error(`  · ${line}`);
   for (const x of skipped) console.error(`  - 跳过 ${x.type}：${x.why}`);

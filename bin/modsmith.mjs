@@ -112,6 +112,8 @@ const USAGE = `modsmith ${VERSION} — 把 Fabric mod jar 变成机器人能用�
       --timeout <ms>         每次右键等多久，默认 3000
       --mods-dir <dir>       注册表注入用，默认 ./mods
       --stations             额外验收工作站：放材料、发命令、断言产物（L3）
+      --scan-blocks          把候选方块逐个右键一遍，记录开窗行为（给 learn --infer 当证据）
+      --scan-limit <n>       方块扫描上限，默认 400
       模型走环境变量：MODSMITH_BASE_URL / MODSMITH_API_KEY / MODSMITH_MODEL
 
   modsmith sidecar <manifest.json> [选项]
@@ -213,7 +215,9 @@ async function cmdLearn(args) {
 
   // --infer：规则优先，不调模型。从清单证据推工作站（L3 的默认路径）。
   if (args.infer === true) {
-    const result = await learnStations(manifestPath, {}, { fatal });
+    const result = await learnStations(manifestPath, {
+      evidencePath: typeof args.evidence === 'string' ? args.evidence : undefined,
+    }, { fatal });
     if (!result.ok) fatal('规则推断没得到工作站');
     console.log(manifestPath);
     return;

@@ -233,6 +233,33 @@ export default async function cmdProbe(args, io) {
   // 2) 站点：右键开不开窗 —— "声明 vs 实测"唯一能自动化的硬约束
   const stationResult = await session.probeStations(manifest.stations ?? []);
 
+  // 3) --scan-blocks：把候选方块逐个右键一遍，记下"开不开窗、开的什么窗"。
+  //    这是 learn --infer 的证据来源：遇到名字与功能不对应的 mod（叫 *_crate 却是
+  //    机器、叫 *_machine 却是纯装饰），只有实测能分开。
+  let blockScan = null;
+  if (args['scan-blocks'] === true) {
+    const { scanCandidates } = await import('./stations.mjs');
+    const { candidates, skipped } = scanCandidates(manifest, { limit: Number(args['scan-limit'] ?? 400) });
+    console.error(`  方块扫描：${candidates.length} 个候选（跳过 容器 ${skipped.container} / 多状态 ${skipped.multiState} / 装饰 ${skipped.decorative}）`);
+    const evidence = {};
+    let i = 0;
+    for (const name of candidates) {
+      i += 1;
+      const r = await session.probeOne(name);
+      if (r.placed === false) { evidence[name] = { placed: false, error: r.error }; continue; }
+      evidence[name] = {
+        placed: true,
+        opensWindow: r.opened === true,
+        ...(r.type ? { windowType: r.type } : {}),
+        ...(typeof r.slots === 'number' ? { slots: r.slots } : {}),
+      };
+      if (i % 20 === 0) console.error(`    ${i}/${candidates.length}`);
+    }
+    const opened = Object.values(evidence).filter((e) => e.opensWindow).length;
+    blockScan = { candidates: candidates.length, opened, skipped, evidence };
+    console.error(`  方块扫描完成：${opened}/${candidates.length} 个会开窗`);
+  }
+
   await session.close();
 
   const out = {
@@ -246,6 +273,7 @@ export default async function cmdProbe(args, io) {
       untested: containerUntested,
     },
     stations: stationResult,
+    ...(blockScan ? { blockScan } : {}),
   };
 
   if (typeof args.out === 'string') {

@@ -24,9 +24,9 @@ full design notes.
   2134 条配方全解析、17 个自定义序列化器自动发现，不需要 javap；农夫乐事端到端
   `onboard` 通过（发现 → `--accept` → 修订单）。缺口：线上同形的语义拆分
   （`i32`/`f32`、`string`/`varints`）仍需人按备选表拍板——协议本身丢了信息。
-- **L3 进行中**：规则推断工作站（`learn --infer`，不需要模型）、`verify --stations`
-  真做一份菜（侧车型 + 两步式都验）、侧车熟成任务可跨断线/重启恢复。
-  剩下的是 probe 的全量窗口扫描（目前靠命名/工具/配方类型推断）与安装评估。
+- **L3 进行中**：规则推断工作站（`learn --infer`，不需要模型，可用 `--evidence` 吃实测
+  证据）、`verify --stations` 真做一份菜（侧车型 + 两步式都验）、侧车熟成任务可跨断线/
+  重启恢复、`probe --scan-blocks` 全量窗口扫描。剩下的是"单方块多配方类型"与安装评估。
 - **0.x 期间 manifest / sidesheet 格式可能发生破坏性变更**，会尽量在 README 里标注。
 
 ## 前置条件
@@ -180,6 +180,21 @@ modsmith verify ./out/somemod-1.21.1-1.0.0.json --pack somemod-1.21.1-1.0.0 \
 
 推断结果一律带 `needsReview: true`——机制判错下游会一直白试，所以让人扫一眼再采信。
 农夫乐事实测：`cooking_pot`（侧车）+ `cutting_board`（两步，`_knife`），与手工标注一致。
+
+**证据优先于命名**。`probe --scan-blocks` 把候选方块逐个右键一遍，记下"开不开窗、开的
+什么窗"，存进 probe 输出；`learn --infer --evidence <probe.json>` 用这份实测决定机制：
+
+```bash
+modsmith probe <manifest> --pack <pack> --scan-blocks --out probe.json --host … --rcon-password …
+modsmith learn <manifest> --infer --evidence probe.json
+```
+
+实测到**自定义**界面 → 必须走侧车（私有菜单原版客户端开不了）；实测确认不开窗 + 被动型
+类型（`drying`）→ `place-and-wait`。没测成的方块不进证据——"未知"不等于"不开窗"。
+
+细节：扫描会优先测**已经声明的站点**。它们的开窗行为正是决定机制的关键，跳过它们会让
+扫描结果对站点判断毫无帮助（FD 实测：带不带证据结论完全一样，就是因为两个站点被跳过）。
+装饰方块按名字排除（叶/原木/台阶/门…），多状态方块只扫默认态。
 
 `learn`（不带 `--infer`）则是 LLM 路径：读清单（+ 可选 mcmod 页面）判断机制，产出
 同一种结构化数据，还要过实测回炉。
