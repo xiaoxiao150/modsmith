@@ -71,13 +71,18 @@ const USAGE = `modsmith ${VERSION} — 把 Fabric mod jar 变成机器人能用�
       --serializers <file> 模组自定义序列化器文法（默认 sidesheets/<pack>.serializers.json）
       --write              真写回 manifest（默认试运行）
       --threshold <0..1>   成功率闸门，默认 0.95
-      --discover           不解析清单，改跑未知序列化器的文法发现：
-                           对 139KB 级捕获秒级找回自定义类型文法（FD 四个类型实测命中）。
-                           产出永远是待审候选（confirmed:false），人核对后抄进正式
-                           sidesheet 并填 name 才生效——机器不替人拍板。
-      --budget <n>         文法搜索的解析尝试预算，默认 600000
-      --max-candidates <n> 每个类型保留几个候选，默认 5
+      --discover           不解析清单，改跑未知序列化器的文法发现：用配方名切段给出
+                           每条 payload 的精确边界，秒级找回自定义类型文法。
+                           产出永远是待审候选（confirmed:false）；人核对后抄进正式
+                           sidesheet 才生效——机器不替人拍板。
+      --accept             人看过表之后采纳：把发现结果写进正式 sidesheet（name 从
+                           清单的 type 字段推断）。之后 recipes --write 才会用它。
+      --no-discover        解析失败时别自动跑发现（默认会自动跑并打印待审表）
+      --budget <n>         文法搜索的解析尝试预算，默认 12000000
+      --max-candidates <n> 每个类型保留几个候选
       --out <file>         发现结果的落盘路径（--write 时用）
+      --server-mods <dir>  服务器 mods 目录：发现时从所有 jar + 原版 jar 扫配方名，
+                           名字清单越全，切段越准（数据包跨命名空间加的配方查不到）
 
   modsmith onboard <mod.jar> --pack <name> [选项]
       新包接入一条龙：inspect → calibrate → probe → verify → recipes → sidecar。

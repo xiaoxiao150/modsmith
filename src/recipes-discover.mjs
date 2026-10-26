@@ -255,6 +255,9 @@ export function discoverSerializers(buf, opts = {}) {
   }
   const known = opts.serializers ?? {};
   const knownItemIds = opts.knownItemIds ?? new Set();
+  // 序列化器名不在 wire 上，但清单里每条配方带 type 字段（jar 里 JSON 的 type）：
+  // 按「这个类型的第一条配方」反查名字，审阅表就不用再人手填 name。
+  const recipeType = new Map((opts.manifestRecipes ?? []).map((r) => [r.id, r.type]));
   const maxKnown = opts.maxItemId ?? Math.max(0, ...knownItemIds);
   const ctx = {
     knownItemIds,
@@ -452,6 +455,9 @@ export function solveAnchored(buf, opts = {}) {
   const known = opts.serializers ?? {};
   if (names.size === 0) return null;
   const knownItemIds = opts.knownItemIds ?? new Set();
+  // 序列化器名不在 wire 上，但清单里每条配方带 type 字段（jar 里 JSON 的 type）：
+  // 按「这个类型的第一条配方」反查名字，审阅表就不用再人手填 name。
+  const recipeType = new Map((opts.manifestRecipes ?? []).map((r) => [r.id, r.type]));
   const maxKnown = opts.maxItemId ?? Math.max(0, ...knownItemIds);
   const ctx = {
     knownItemIds,
@@ -546,36 +552,98 @@ export function solveAnchored(buf, opts = {}) {
 
   const MAX_FITS = 16;
   const MAX_TRIES_PER_TYPE = 60000;
+  const fitsByType = new Map();
+  const weakTypes = new Set();
   for (const [typeId, occ] of [...byType].sort((a, b) => a[0] - b[0])) {
-    const fits = [];
+    // 严格候选与"部分拟合"候选分开收：严格候选没找齐之前不能停（否则部分拟合
+    // 的垃圾会先占满候选位，让本该严格的情况退化成弱解）。
+    const strict = [];
+    const weak = [];
     let tried = 0;
     for (const cand of candidateGrammars(ctx)) {
-      if (ctx.budget <= 0 || fits.length >= MAX_FITS || tried >= MAX_TRIES_PER_TYPE) break;
+      if (ctx.budget <= 0 || strict.length >= MAX_FITS || tried >= MAX_TRIES_PER_TYPE) break;
       tried += 1;
-      // 候选必须把该类型的**每一次**出现都精确吃干净：段尾是硬边界，错一个字节就死。
-      let ok = true;
+      let fit = 0;
       for (const o of occ) {
         const r = parsePayload(buf, o.header.payloadStart, cand.fields, ctx);
-        if (!r || r.next !== o.end) { ok = false; break; }
+        if (!r || r.next !== o.end) break;
+        fit += 1;
       }
-      if (ok) fits.push(cand);
+      if (fit === occ.length) strict.push({ ...cand, fit });
+      // 弱候选要多收：真正文法可能排在很多"碰巧跨过错误段尾"的垃圾后面，
+      // 按拟合次数排序后它应当排第一（真文法能对上所有段尾正确的出现）。
+      else if (fit > 0 && weak.length < 200) weak.push({ ...cand, fit });
     }
+    const fits = strict.length > 0 ? strict : weak;
     if (fits.length === 0) {
-      notes.push(`#${typeId}（${occ[0].header.name} 等 ${occ.length} 条）找不到能精确吃干净所有出现的文法`
+      notes.push(`#${typeId}（${occ[0].header.name} 等 ${occ.length} 条）找不到能吃干净任何一条出现的文法`
         + `（试过 ${tried} 个候选，预算 ${ctx.budget <= 0 ? '耗尽' : '未耗尽'}）`
-        + '——名字清单不完整（数据包可能在别的命名空间加了配方）：用 --server-mods 指向服务器 mods 目录（含原版 jar），或先用已有 sidesheet 跑一次 recipes 让清单带上服务端真值');
+        + '——名字清单可能不完整（--server-mods 指向服务器 mods 目录，含原版 jar）');
       return { ok: false, count: count.value, segments: [], discovered: [], candidates: {}, notes };
     }
-    // 选中规则：数据合理性优先（i32 的 9 压过 f32 的 2.6e-41），再看形状库命中/非退化。
-    fits.sort((a, b) => scoreFit(occ[0].header.payloadStart, b.fields) - scoreFit(occ[0].header.payloadStart, a.fields)
+    // 严格优先：有候选能把**每一次**出现都吃干净，就只在它们里挑（名字清单完整时的正路）。
+    // 没有的话（名字清单有缺口，段尾不可信）退回"拟合次数最多"的候选，交给整包校验裁决。
+    const pool = fits;
+    if (strict.length === 0) weakTypes.add(typeId);
+    pool.sort((a, b) => b.fit - a.fit
+      || scoreFit(occ[0].header.payloadStart, b.fields) - scoreFit(occ[0].header.payloadStart, a.fields)
       || Number(b.shape !== null) - Number(a.shape !== null)
       || Number(isDegenerate(a.fields)) - Number(isDegenerate(b.fields)));
-    solved[typeId] = { fields: fits[0].fields, shape: fits[0].shape };
-    if (fits.length > 1) alternativeFits[typeId] = fits.slice(1);
-    ctx.trace?.('anchor-solve', { typeId, shape: fits[0].shape, occ: occ.length, fits: fits.length });
+    fitsByType.set(typeId, pool);
+    solved[typeId] = { fields: pool[0].fields, shape: pool[0].shape };
+    ctx.trace?.('anchor-solve', { typeId, shape: pool[0].shape, occ: occ.length, fit: pool[0].fit, strict: strict.length > 0 });
   }
 
-  // ---- 3) 整包验证 + 统计 ----
+  // ---- 3) 整包校验（名字缺口下按失败位置换备选）+ 统计 ----
+  const choice = new Map([...fitsByType.keys()].map((t) => [t, 0]));
+  const applySolved = () => {
+    for (const [typeId, arr] of fitsByType) {
+      solved[typeId] = { fields: arr[choice.get(typeId)].fields, shape: arr[choice.get(typeId)].shape };
+    }
+  };
+  const validateWalk = () => {
+    let cur = count.next;
+    let lastType = null;
+    for (let guard = 0; guard < 100000; guard++) {
+      if (cur === buf.length) return { ok: true };
+      if (cur > buf.length) return { ok: false, off: cur, lastType };
+      const header = tryHeader(buf, cur, { ...ctx, knownNames: null });
+      if (!header) return { ok: false, off: cur, lastType };
+      const g = grammarFor(header.typeId);
+      if (!g) return { ok: false, off: cur, lastType, missing: header.typeId };
+      const r = parsePayload(buf, header.payloadStart, g.fields, ctx);
+      if (!r || r.next > buf.length) return { ok: false, off: cur, lastType };
+      lastType = header.typeId;
+      cur = r.next;
+    }
+    return { ok: false, off: cur, lastType };
+  };
+  applySolved();
+  let walk = validateWalk();
+  let repairs = 0;
+  while (!walk.ok && repairs < 40) {
+    // 只修弱类型（名字缺口下猜的那批）；错位一般出现在上一条配方上。
+    const typeId = walk.lastType;
+    const arr = typeId != null ? fitsByType.get(typeId) : null;
+    if (!arr || !weakTypes.has(typeId)) break;
+    const next = (choice.get(typeId) ?? 0) + 1;
+    if (next >= arr.length) break;
+    choice.set(typeId, next);
+    repairs += 1;
+    applySolved();
+    walk = validateWalk();
+    ctx.trace?.('anchor-repair', { typeId, choice: next, off: walk.off, ok: walk.ok });
+  }
+  if (!walk.ok) {
+    notes.push(`整包解析失败${repairs > 0 ? `（换过 ${repairs} 次备选）` : ''}：@${walk.off}`
+      + `（上一条类型 ${walk.lastType ?? '?'}${walk.missing != null ? `，缺文法 #${walk.missing}` : ''}）`
+      + '——名字清单不完整（数据包可能在别的命名空间加了配方）');
+    return { ok: false, count: count.value, segments: [], discovered: [], candidates: {}, notes };
+  }
+  for (const [typeId, arr] of fitsByType) {
+    if (arr.length > 1) alternativeFits[typeId] = arr.filter((_, i) => i !== choice.get(typeId));
+  }
+  // 最终用正式解析器复核一遍（两套实现互为校验）
   const serializers = { ...known };
   for (const [typeId, g] of Object.entries(solved)) {
     serializers[typeId] = { name: known[typeId]?.name ?? `discovered#${typeId}`, fields: g.fields };
@@ -584,7 +652,7 @@ export function solveAnchored(buf, opts = {}) {
   try {
     parsed = parseDeclareRecipes(buf, { serializers });
   } catch (err) {
-    notes.push(`段都对齐了，但整包解析失败：${err.message}`);
+    notes.push(`整包解析失败：${err.message}`);
     return { ok: false, count: count.value, segments: [], discovered: [], candidates: {}, notes };
   }
 
@@ -603,9 +671,10 @@ export function solveAnchored(buf, opts = {}) {
   for (const rec of parsed.recipes) {
     const g = solved[rec.typeId];
     if (!g) continue;
-    const s = (stat[rec.typeId] ??= { occurrences: 0, slots: [], sample: null });
+    const s = (stat[rec.typeId] ??= { occurrences: 0, slots: [], sample: null, name: null });
     s.occurrences += 1;
     if (s.sample === null) s.sample = rec.data;   // 人审对照配方 JSON 用（字段值是什么）
+    if (s.name == null && recipeType.has(rec.name)) s.name = recipeType.get(rec.name);
     slotOf(g.fields, rec.data, s.slots);
   }
   const segments = spans.map((sp) => ({ index: -1, typeId: sp.typeId, start: sp.start, end: sp.end, known: !solved[sp.typeId], occurrences: 1 }));
@@ -617,6 +686,7 @@ export function solveAnchored(buf, opts = {}) {
     const slotIds = [...new Set(s.slots)].sort((a, b) => a - b);
     const entry = {
       typeId: Number(typeId),
+      name: s.name,
       fields: g.fields,
       shape: g.shape,
       occurrences: s.occurrences,
@@ -663,7 +733,7 @@ export function sidesheetFromDiscovery(result, { mod = '' } = {}) {
   const serializers = {};
   for (const d of result.discovered) {
     serializers[String(d.typeId)] = {
-      name: null,
+      name: d.name ?? null,
       fields: d.fields,
       _confirmed: false,
       _shape: d.shape,

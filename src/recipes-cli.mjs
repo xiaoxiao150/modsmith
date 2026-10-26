@@ -109,6 +109,7 @@ export default async function cmdRecipes(args, io) {
       knownItemIds,
       maxItemId: Math.max(-1, ...knownItemIds),
       knownNames,
+      manifestRecipes: manifest.recipes ?? [],
       budget,
       maxCandidates: Number(args['max-candidates'] ?? 8),
       trace: process.env.MODSMITH_TRACE
@@ -126,7 +127,7 @@ export default async function cmdRecipes(args, io) {
     const kindList = (fields) => fields
       .map((f) => (f.kind === 'list' ? `list<${(f.item ?? []).map((x) => x.kind).join('|')}>` : f.kind)).join(',');
     for (const d of result.discovered) {
-      console.error(`  #${d.typeId} ${d.shape ?? '(盲搜)'} ×${d.occurrences}: ${kindList(d.fields)}`);
+      console.error(`  #${d.typeId} ${d.name ?? '(名字待填)'} ${d.shape ?? '(盲搜)'} ×${d.occurrences}: ${kindList(d.fields)}`);
       console.error(`      字段名（形状推断，盲搜为 f0/f1 需人工改名）: ${d.fields.map((f) => f.name).join(', ')}`);
       const names = d.slotIds.slice(0, 5).map((id) => `${id}=${nameOf(id)}`);
       if (d.slotIds.length > 0) console.error(`      命中物品（前 5）: ${names.join(', ')}${d.slotIds.length > 5 ? ' …' : ''}`);
@@ -138,6 +139,24 @@ export default async function cmdRecipes(args, io) {
     const candidateTypes = Object.keys(result.candidates).filter((k) => !result.discovered.some((d) => String(d.typeId) === k));
     for (const k of candidateTypes) {
       console.error(`  ? #${k} 未定（${result.candidates[k].length} 个候选）——见落盘文件的 _candidates 自行核对`);
+    }
+    // --accept：人看过表之后的采纳动作。写进**正式** sidesheet（name 已从清单的 type
+    // 字段推断好），之后 recipes --write 才会用它。——"永不自动生效"仍然成立：
+    // 生效的前提是人显式跑了 --accept。
+    if (args.accept === true) {
+      if (!result.ok) io.fatal('发现没整包走通，不能采纳（先把名字清单/形状补齐）');
+      const formal = {
+        _comment: `由 modsmith recipes --discover 产出、经人 --accept 采纳（${manifest.mod}）。`
+          + ' name 来自清单里该类型配方的 type 字段；字段语义请对照样例值与备选核对。'
+          + ' 编号是这台服务器的注册顺序，换 jar 组合会整体位移。',
+        serializers: {},
+      };
+      for (const d of result.discovered) {
+        formal.serializers[String(d.typeId)] = { name: d.name ?? null, fields: d.fields, _confirmed: true, _shape: d.shape };
+      }
+      writeFileSync(sidecarPath, JSON.stringify(formal, null, 2) + '\n');
+      console.error(`  ✓ 已采纳 ${result.discovered.length} 个序列化器到 ${sidecarPath}`);
+      console.error(`  下一步：modsmith recipes <manifest> --serializers ${sidecarPath} --write`);
     }
     const outPath = String(args.out ?? sidecarPath.replace(/\.serializers\.json$/, '.serializers.discovered.json'));
     if (args.write === true) {

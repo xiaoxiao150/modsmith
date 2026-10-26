@@ -60,7 +60,21 @@ modsmith recipes <manifest.json> --discover --write    # 候选落到
 下），对不齐会**明确报错**并指出段位置，不会猜。
 
 `onboard` 走到 `recipes` 时如果遇到未知序列化器，会**自动跑一次发现**并打印这张表
-（`--write` 时落成待审文件），不再是硬失败——你只需要核对表、补 name、抄进正式 sidesheet。
+（`--write` 时落成待审文件），不再是硬失败。表里的 `name` 已经按清单里该类型配方的
+`type` 字段自动填好，不用再从源码找。
+
+看过表之后：
+
+```bash
+modsmith recipes <manifest> --discover --server-mods ./mods --accept
+# → 写进正式 sidesheet（字段序取发现结果，name 已填）
+modsmith recipes <manifest> --write
+# → 服务端真配方翻进清单
+```
+
+暮色森林实测：`--accept` 产出的 sidesheet 直接可用，2143 条配方 100% 翻译；17 个文法里
+15 个与人审结果逐字段一致，另外 2 个是线上同形的等价拆分（scepter 的 i32+varint、
+no_template 的 string/varints——字节一样，语义由人按备选表选）。
 
 表里每条带：出现的次数、命中物品、**首条样例**（对着配方 JSON 核语义用的原始值）和
 **线上同形的备选**。i32 与 f32 都是 4 字节、`ingredient` 与 `list[slot]` 是同一段 wire——
