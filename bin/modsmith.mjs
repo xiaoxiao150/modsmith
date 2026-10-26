@@ -45,6 +45,8 @@ const USAGE = `modsmith ${VERSION} — 把 Fabric mod jar 变成机器人能用�
       --x/--y/--z <n>        测试用的空地中心，默认 400/200/400
       --place               额外做一遍"真实放置"校准（给 setblock 改不动属性的方块）
       --resume               接着上次量：已有结果里量全的方块跳过，适合断点续跑
+      --fresh                不复用旧 ids，整份重测（换了/加了 jar 之后必须用它；
+                             旧 ids 会整体位移，指纹闸会拒绝续用）
       --server-mods <dir>    服务器 mods 目录：把指纹记进 ids；加载时对不上就拒绝
                              （不提指纹的那次量无法发现"换过服务器/换过 jar"）
       --blocks-only         只量方块（配合 --ids 复用已有的物品结果）

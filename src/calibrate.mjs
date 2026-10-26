@@ -88,7 +88,16 @@ export default async function cmdCalibrate(args, io) {
   //   a) 指纹：--server-mods 给服务器 mods 目录，与 ids 里记录的比，对不上就拒绝
   //   b) 预检：--resume/--items-only 复用旧方块数据时，抽 3 个真摆一遍（spawn 之后）
   const serverModsDir = typeof args['server-mods'] === 'string' ? args['server-mods'] : undefined;
-  const prev = readManifest(outPath);
+  // --fresh：换了/加了 jar 之后旧 ids 本来就该整体作废。以前只能在文件系统里手工删，
+  // 而指纹闸又把"重新量"本身挡住了（实测：换上第二版 jar 后 calibrate 直接拒绝）。
+  const fresh = args.fresh === true;
+  const prev = fresh ? null : readManifest(outPath);
+  if (fresh) {
+    if (args['blocks-only'] === true || args['items-only'] === true) {
+      io.fatal('--fresh 不能和 --blocks-only/--items-only 一起用：那两档要复用旧数据');
+    }
+    process.stderr.write('  --fresh：不复用旧 ids，整份重测\n');
+  }
   if (prev) {
     const verdict = checkServerMods(prev.serverMods, serverModsDir);
     for (const line of verdict.lines) process.stderr.write(`  ${line}\n`);

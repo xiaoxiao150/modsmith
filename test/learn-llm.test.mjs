@@ -88,3 +88,27 @@ test('轮数用完仍不合格 → 不写盘（宁原样保留）', () => withMa
   assert.equal(r.ok, false);
   assert.equal(readFileSync(file, 'utf8'), before, '失败时清单必须一字不动');
 }));
+
+test('learn --infer：没有方块的纯物品包是「不需要工作站」，不是失败', async () => {
+  const { learnStations } = await import('../src/learn.mjs');
+  const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'modsmith-learn-food-'));
+  try {
+    const p = join(dir, 'food.json');
+    writeFileSync(p, JSON.stringify({
+      mod: 'food', namespace: 'food', blocks: {}, items: { 'food:jam': {} },
+      containers: [], stations: [],
+      recipes: [{ id: 'food:jam', type: 'minecraft:crafting_shapeless', ingredients: [[{ id: 'minecraft:apple' }]], result: { id: 'food:jam', count: 1 } }],
+    }));
+    const io = { fatal: (m) => { throw new Error(m); } };
+    const r = await learnStations(p, {}, io);
+    assert.equal(r.ok, true, '纯物品包不该让 onboard 停在 learn');
+    assert.equal(r.noStations, true);
+    const after = JSON.parse(readFileSync(p, 'utf8'));
+    assert.deepEqual(after.stations, []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

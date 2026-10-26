@@ -283,7 +283,16 @@ export async function learnStations(manifestPath, opts = {}, io) {
   for (const x of skipped) console.error(`  - 跳过 ${x.type}：${x.why}`);
 
   if (stations.length === 0) {
-    console.error('✗ 没能从清单里推出任何工作站：这个 mod 可能没有"放材料加工"的方块（纯装饰/装备/食物）');
+    // 纯物品/食物包（More Delight 实测：0 方块、38 件食物）没有任何"放材料加工"的方块，
+    // 推不出站点是**正确结果**，不是失败。以前这里一律 ok:false，onboard 链条直接断在
+    // learn 上——一个只加食物和配方的包永远接不完。真有方块却推不出来才算失败。
+    const blockCount = Object.keys(manifest.blocks ?? {}).length;
+    if (blockCount === 0) {
+      console.error('✓ 这个包没有方块（纯物品/食物包），不需要工作站');
+      return { ok: true, manifest, stations: [], kept: [], filled: [], added: [], noStations: true };
+    }
+    console.error(`✗ 没能从清单里推出任何工作站（包里有 ${blockCount} 种方块）：`
+      + '可能是纯装饰/装备方块，也可能是命名对不上——看过跳过原因再决定');
     return { ok: false, manifest, stations: [] };
   }
 

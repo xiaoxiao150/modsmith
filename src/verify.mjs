@@ -30,7 +30,10 @@ export default async function cmdVerify(args, io) {
   if (!ids) io.fatal(`读不了 ids：${idsPath}（先跑 calibrate）`);
   const idBlocks = Object.keys(ids.blocks ?? {}).length;
   const idItems = Object.keys(ids.items ?? {}).length;
-  if (idBlocks === 0) {
+  // 清单里本来就没有方块（纯物品/食物包）时，空 blocks 是正确结果：以前一律当成
+  // "--items-only 漏了"，纯物品包接不完（More Delight 实测）。
+  const manifestBlocks = Object.keys(manifest.blocks ?? {}).length;
+  if (idBlocks === 0 && manifestBlocks > 0) {
     io.fatal(`${idsPath} 里没有方块数据（只跑过 --items-only？）——方块校验会全挂，先跑一次完整 calibrate`);
   }
   if (idItems === 0) {
@@ -164,7 +167,13 @@ export default async function cmdVerify(args, io) {
   //   - two-step-use：放料 → 换工具 → 右键 → 等产物（真实交互，机器人会做的动作）
   if (args.stations === true) {
     const all = manifest.stations ?? [];
-    if (all.length === 0) add('station', false, '没有可执行的站点（先跑 learn --infer）');
+    // 一条站点都没有 = 这个包本来就没有"放材料加工"的方块（纯物品/食物包，More Delight
+    // 实测 0 方块）。那不是缺陷；有方块/站点却一条可执行的都没有，才要报出来。
+    if (all.length === 0) {
+      const blocks = Object.keys(manifest.blocks ?? {}).length;
+      if (blocks === 0) add('station', true, '这个包没有工作站（纯物品/食物包），不需要站点验收');
+      else add('station', false, `包里有过 ${blocks} 种方块但没有站点声明（先跑 learn --infer）`);
+    }
     // **不许静默跳过**：以前这个 filter 把 place-and-wait 直接丢掉，报告里看不到任何
     // 痕迹——那正是"静默失败"。现在没有 recipeType 的、以及执行器还没覆盖的类型，
     // 都要显式列出来。
