@@ -26,6 +26,9 @@ const STEM_ALIASES = {
   drying: ['drying_rack', 'rack'],
   uncrafting: ['uncrafting_table', 'uncrafting'],
   smoking: ['smoker'],
+  // 一个方块服务多种配方时，方块名往往不提任何类型（就是 "machine"、"processor"）。
+  // 兜一层通用交互方块名，免得整类配方被丢掉（真实 mod 里不少见）。
+  machine: ['machine', 'processor', 'workstation', 'station', 'block'],
 };
 
 /** 被动加工：放上去等，不需要手持工具。只有在实测确认"不开窗"时才这么判。 */
@@ -74,8 +77,19 @@ export function toolSuffixOf(recipes, items = []) {
     };
     walk(r.tool);
     for (const tag of tags) {
-      const seg = String(tag).split('/').pop();
-      // tools/knife → _knife；tools/axes → _axe（单复数差一个 s）
+      // 标签两种写法：`c:tools/knife`（带路径）和 `minecraft:axes`（只有命名空间）。
+      // 先取最后一段路径、再去掉命名空间——只 split('/') 会把 `minecraft:axes`
+      // 整串留下，永远匹配不上（实测踩过）。
+      const seg = String(tag).split('/').pop().split(':').pop();
+      // 常见工具标签直接映射成后缀。**不等 manifest.items 里有对应物品**：
+      // `minecraft:axes` 是原版标签，manifest 只收模组物品，等它永远等不到
+      // （FD 的拆解配方就全是斧头标签，靠这个判断"两步式"）。
+      const KNOWN = { knife: '_knife', knives: '_knife', axe: '_axe', axes: '_axe',
+        pickaxe: '_pickaxe', pickaxes: '_pickaxe', shovel: '_shovel', shovels: '_shovel',
+        hoe: '_hoe', hoes: '_hoe', shears: '_shears', sword: '_sword', swords: '_sword' };
+      const mapped = KNOWN[seg] ?? KNOWN[seg.replace(/s$/, '')] ?? null;
+      if (mapped) { bump(mapped); continue; }
+      // 自定义标签：退回"manifest 里有没有这个后缀的物品"的弱判断。
       for (const cand of [`_${seg}`, `_${seg.replace(/s$/, '')}`]) {
         if (items.some((it) => String(it).endsWith(cand))) { bump(cand); break; }
       }
@@ -131,7 +145,7 @@ export function inferStations(manifest, opts = {}) {
   const stations = [];
   const notes = [];
   const skipped = [];
-  const usedBlocks = new Set();
+  const usedIds = new Set();
 
   for (const [type, recipes] of [...byType].sort((a, b) => a[0].localeCompare(b[0]))) {
     const { stem, chosen, alternates } = matchBlock(type, manifest, containers);
@@ -139,14 +153,15 @@ export function inferStations(manifest, opts = {}) {
       skipped.push({ type, why: '没有对得上的方块（可能不需要方块，或是纯手持配方）' });
       continue;
     }
-    if (usedBlocks.has(chosen)) {
-      skipped.push({ type, why: `${chosen} 已被别的类型占用` });
-      continue;
-    }
+    // 同一个方块可以服务多种配方类型（一个机器既是锅又是熏炉）。
+    // 以前这里是"已被别的类型占用"就跳过——那等于把第二种类型的配方整类丢掉，
+    // 而且报告里看不出来。改成允许复用方块，只在 id 冲突时加类型后缀。
     const tool = toolSuffixOf(recipes, Object.keys(manifest.items ?? {}));
     const ev = evidence[chosen] ?? {};
     const customWindow = ev.opensWindow === true && ev.windowType && !/^minecraft:generic_\d+x\d+$/.test(ev.windowType);
-    const id = shortName(chosen).replace(/[^a-z0-9_]/g, '_');
+    const baseId = shortName(chosen).replace(/[^a-z0-9_]/g, '_');
+    const id = usedIds.has(baseId) ? `${baseId}_${stem.replace(/[^a-z0-9_]/g, '_')}` : baseId;
+    usedIds.add(id);
 
     let kind;
     if (customWindow) kind = 'sidecar-recipe';
@@ -169,13 +184,16 @@ export function inferStations(manifest, opts = {}) {
       // 类型名不在 wire 上就靠这个字段回连到 manifest.recipes。
       st.recipeType = type;
     }
-    if (kind === 'place-and-wait') st.slots = 1;
+    if (kind === 'place-and-wait') {
+      // 被动站点也要能回连到配方：verify 要靠 recipeType 挑一条真做一遍。
+      st.slots = 1;
+      st.recipeType = type;
+    }
     if (kind === 'sidecar-recipe') {
       st.command = `/${id} cook {recipe}`;
       st.recipeType = type;
     }
     stations.push(st);
-    usedBlocks.add(chosen);
     notes.push(`${type}（${recipes.length} 条）→ ${chosen} [${kind}${tool ? ` ${tool.suffix}×${tool.hits}` : ''}${customWindow ? ` 界面 ${ev.windowType}` : ''}]`
       + (alternates.length ? `；同类方块另有 ${alternates.length} 个` : ''));
   }

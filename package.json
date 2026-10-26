@@ -1,6 +1,6 @@
 {
   "name": "modsmith",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Turn a Fabric mod jar into a semantic manifest any mineflayer bot can use",
   "type": "module",
   "license": "MIT",

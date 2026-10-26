@@ -17,17 +17,17 @@ from a live server you own (OP + RCON required) and keeps the mapping
 fingerprinted. Docs are Chinese-first; this README and `AGENTS.md` carry the
 full design notes.
 
-## 状态（0.4.1 预览）
+## 状态（0.4.2 预览）
 
 - **L1 完成**：单包接入（Farmer's Delight 3.3.6）从 jar 到机器人可用的清单与 ids，生产在用。
 - **L2 基本完成**："换一个 mod 只要几条命令 + 审一张表"。暮色森林 4.8.629 实测：
   2134 条配方全解析、17 个自定义序列化器自动发现，不需要 javap；农夫乐事端到端
   `onboard` 通过（发现 → `--accept` → 修订单）。缺口：线上同形的语义拆分
   （`i32`/`f32`、`string`/`varints`）仍需人按备选表拍板——协议本身丢了信息。
-- **L3 基本完成**：规则推断工作站（`learn --infer`，可用 `--evidence` 吃实测证据）、
-  `verify --stations` 真做一份菜（侧车型 + 多原料两步式都验）、侧车熟成任务可跨断线/
-  重启恢复、`probe --scan-blocks` 全量窗口扫描、`onboard` 七步一条龙。
-  缺口：单方块多 recipeType（目前一对一）、`learn` 的 LLM 路径未在本轮复验。
+- **L3 完成**：规则推断工作站（`learn --infer`，可用 `--evidence` 吃实测证据）、
+  `verify --stations` 三种机制都真执行（侧车 / 多原料两步 / 被动掉落）、侧车熟成任务
+  可跨断线/重启恢复、`probe --scan-blocks` 全量窗口扫描、单方块可服务多种配方类型、
+  `onboard` 七步一条龙。
 - **0.x 期间 manifest / sidesheet 格式可能发生破坏性变更**，会尽量在 README 里标注。
 
 ## 前置条件
@@ -224,6 +224,17 @@ modsmith learn <manifest> --infer --evidence probe.json
 ✓ [station] cutting_board（两步，4 种料）：leather_helmet + leather_chestplate
              + leather_leggings + leather_boots + shears → leather
 ```
+
+三种站点都实测过：
+
+| 机制 | 怎么验的 |
+|---|---|
+| `sidecar-recipe` | 放材料 → 发命令 → 等产物进包（厨锅） |
+| `two-step-use` | 放料 → 换工具 → 右键 → 等产物（砧板，多原料逐个放） |
+| `place-and-wait` | 放料 → 等 → 产物**掉落物**出现（营火；按数字 id 认实体） |
+
+`verify --stations` **不静默跳过**：缺 `recipeType` 的、机制还没执行器的，都会显式报
+“已知但未验”，而不是从报告里消失。
 
 `onboard` 现在是 **7 步**：inspect → calibrate → probe（含方块扫描）→ recipes →
 learn（规则推断）→ verify（含站点实测）→ sidecar。`recipes` 排在 `learn`/`verify` 之前是

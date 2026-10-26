@@ -98,6 +98,17 @@ function commandName(station) {
  * 通用侧车读的站点配置（templates/sidecar-generic 启动时扫 config/modsmith-sidecar/*.json）。
  * 纯函数：manifest 站点 → 配置对象。
  */
+/**
+ * 站点能处理的配方类型。历史字段 `recipeType` 是单个字符串；
+ * 同一个方块服务多种配方（既煮又熏）时用 `recipeTypes` 数组。两个都认，输出成数组。
+ */
+export function recipeTypesOf(st, ns) {
+  const list = Array.isArray(st?.recipeTypes) ? st.recipeTypes
+    : st?.recipeType ? [st.recipeType]
+    : [`${ns}:cooking`];
+  return [...new Set(list.map((x) => String(x)).filter(Boolean))];
+}
+
 export function stationConfigOf(manifest, stations, opLevel) {
   const ns = manifest.namespace ?? String(manifest.mod ?? '').replace(/-/g, '_');
   return stations.map((st) => ({
@@ -105,7 +116,9 @@ export function stationConfigOf(manifest, stations, opLevel) {
     label: manifest.names?.[`block.${String(st.block).split(':')[1]}`]?.zh ?? String(st.block).split(':')[1],
     command: commandName(st),
     block: st.block,
-    recipeType: st.recipeType ?? `${ns}:cooking`,
+    // 兼容老格式：单 recipeType + 新格式 recipeTypes[]
+    recipeTypes: recipeTypesOf(st, ns),
+    ...(st.recipeType ? { recipeType: st.recipeType } : {}),
     cookTime: Number.isFinite(Number(st.cookTime)) ? Number(st.cookTime) : 200,
     opLevel,
     ...(typeof st.heatTag === 'string' && st.heatTag ? { heatTag: st.heatTag } : {}),

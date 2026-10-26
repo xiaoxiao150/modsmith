@@ -173,3 +173,47 @@ test('证据优先：实测到自定义界面 → 改成侧车；实测不开窗
   const withPassive = inferStations(m, { evidence: { 'm:drying_rack': { opensWindow: false } } });
   assert.equal(withPassive.stations.find((s) => s.block === 'm:drying_rack').kind, 'place-and-wait');
 });
+
+test('toolSuffixOf：原版工具标签（minecraft:axes）也能推出后缀', async () => {
+  const { toolSuffixOf } = await import('../src/stations.mjs');
+  const mk = (tag) => ({ tool: { 'fabric:type': 'fabric:any', ingredients: [{ tag }] } });
+  // 关键：manifest.items 只收**模组**物品，等原版物品名永远等不到，
+  // 所以常见标签必须有内置映射，不能靠 items 兜底。
+  assert.deepEqual(toolSuffixOf([mk('minecraft:axes'), mk('minecraft:axes')], []), { suffix: '_axe', hits: 2 });
+  assert.deepEqual(toolSuffixOf([mk('c:tools/knife'), mk('c:tools/knife')], []), { suffix: '_knife', hits: 2 });
+  assert.deepEqual(toolSuffixOf([mk('minecraft:axes')], []), null, '只出现一次不算家族');
+});
+
+test('同一方块可以服务多种配方类型（id 加类型后缀，不再整类丢弃）', async () => {
+  const { inferStations } = await import('../src/stations.mjs');
+  const m = {
+    mod: 'm', namespace: 'm', containers: [], blocks: { 'm:cooking_pot': {}, 'm:cutting_pot': {} },
+    items: { 'm:iron_knife': {}, 'm:gold_knife': {} },
+    recipes: [
+      { id: 'm:cooking/a', type: 'm:cooking', ingredients: [[{ id: 'minecraft:beef' }]] },
+      { id: 'm:cutting/a', type: 'm:cutting', ingredients: [[{ id: 'minecraft:beef' }]], tool: [{ id: 'm:iron_knife' }, { id: 'm:gold_knife' }] },
+      { id: 'm:cutting/b', type: 'm:cutting', ingredients: [[{ id: 'minecraft:pork' }]], tool: [{ id: 'm:iron_knife' }, { id: 'm:gold_knife' }] },
+    ],
+  };
+  const { stations, skipped } = inferStations(m);
+  // 两个类型都命中名字里的词干（cooking_pot / cutting_pot），不该互相挤掉；
+  // 真实场景里同一个方块服务两种配方时用同一块，id 加类型后缀区分。
+  assert.equal(stations.length, 2, `应出 2 个站点：${JSON.stringify(stations.map((s) => s.id))}`);
+  assert.deepEqual(new Set(stations.map((s) => s.id)).size, 2, 'id 必须唯一');
+  assert.deepEqual(skipped, [], `不该有跳过：${JSON.stringify(skipped)}`);
+  const board = stations.find((s) => s.kind === 'two-step-use');
+  assert.equal(board.recipeType, 'm:cutting');
+});
+
+test('place-and-wait 站点必须带 recipeType，否则会被显式报出来（不许静默跳过）', async () => {
+  const { inferStations } = await import('../src/stations.mjs');
+  const m = {
+    mod: 'm', namespace: 'm', containers: [], blocks: { 'm:drying_rack': {} },
+    recipes: [{ id: 'm:drying/a', type: 'm:drying', ingredients: [[{ id: 'minecraft:kelp' }]] }],
+  };
+  const { stations } = inferStations(m, { evidence: { 'm:drying_rack': { opensWindow: false } } });
+  const drying = stations.find((s) => s.block === 'm:drying_rack');
+  assert.equal(drying.kind, 'place-and-wait');
+  // verify 要靠 recipeType 挑配方执行；缺了它就只能"已知但未验"。
+  assert.equal(drying.recipeType, 'm:drying');
+});

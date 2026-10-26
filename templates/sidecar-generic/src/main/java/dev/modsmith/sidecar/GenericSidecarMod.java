@@ -123,8 +123,8 @@ public final class GenericSidecarMod implements ModInitializer {
             return fail(source, "no such recipe: " + id);
         }
         Recipe<?> recipe = entry.value();
-        if (!isOurRecipe(recipe, station.recipeType)) {
-            return fail(source, "not a " + station.recipeType + " recipe: " + id);
+        if (!isOurRecipe(recipe, station)) {
+            return fail(source, "not a " + String.join("/", station.recipeTypes) + " recipe: " + id);
         }
         BlockPos at = findStation(world, player.getBlockPos(), station.block);
         if (at == null) {
@@ -181,7 +181,7 @@ public final class GenericSidecarMod implements ModInitializer {
         int total = 0;
         List<String> shown = new ArrayList<>();
         for (RecipeEntry<?> entry : source.getServer().getRecipeManager().values()) {
-            if (!isOurRecipe(entry.value(), station.recipeType)) {
+            if (!isOurRecipe(entry.value(), station)) {
                 continue;
             }
             total++;
@@ -314,9 +314,19 @@ public final class GenericSidecarMod implements ModInitializer {
         }
     }
 
-    private static boolean isOurRecipe(Recipe<?> recipe, String recipeType) {
+    /** 站点能处理的配方类型：recipeTypes[] 优先，兼容老的 recipeType 单值。 */
+    private static boolean isOurRecipe(Recipe<?> recipe, SidecarStation station) {
         Identifier type = Registries.RECIPE_TYPE.getId(recipe.getType());
-        return type != null && recipeType.equals(type.toString());
+        if (type == null) {
+            return false;
+        }
+        String name = type.toString();
+        for (String candidate : station.recipeTypes) {
+            if (candidate.equals(name)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static RecipeEntry<?> findRecipe(MinecraftServer server, Identifier id) {
@@ -456,17 +466,19 @@ public final class GenericSidecarMod implements ModInitializer {
         final String command;
         final Identifier block;
         final String recipeType;
+        final List<String> recipeTypes;
         final int cookTime;
         final int opLevel;
         final TagKey<Block> heatTagKey;
 
         SidecarStation(String id, String label, String command, String block, String recipeType,
-                       int cookTime, int opLevel, String heatTag) {
+                       List<String> recipeTypes, int cookTime, int opLevel, String heatTag) {
             this.id = id;
             this.label = label == null || label.isBlank() ? id : label;
             this.command = command == null || command.isBlank() ? id : command;
             this.block = Identifier.of(block);
             this.recipeType = recipeType;
+            this.recipeTypes = recipeTypes;
             this.cookTime = cookTime > 0 ? cookTime : 200;
             this.opLevel = Math.max(0, opLevel);
             this.heatTagKey = heatTag == null || heatTag.isBlank()
@@ -497,7 +509,8 @@ public final class GenericSidecarMod implements ModInitializer {
                             opt(st, "label"),
                             opt(st, "command"),
                             require(st, "block"),
-                            require(st, "recipeType"),
+                            opt(st, "recipeType"),
+                            parseTypes(st, opt(st, "recipeType")),
                             st.has("cookTime") ? st.get("cookTime").getAsInt() : 0,
                             st.has("opLevel") ? st.get("opLevel").getAsInt() : 2,
                             opt(st, "heatTag")));
@@ -515,6 +528,23 @@ public final class GenericSidecarMod implements ModInitializer {
             throw new IllegalArgumentException("station config missing '" + key + "'");
         }
         return v.getAsString();
+    }
+
+    /** 读 recipeTypes[]；没有就退回老字段 recipeType，都没有就是空列表（站点不可用）。 */
+    private static List<String> parseTypes(JsonObject o, String legacy) {
+        List<String> out = new ArrayList<>();
+        JsonElement arr = o == null ? null : o.get("recipeTypes");
+        if (arr != null && arr.isJsonArray()) {
+            for (JsonElement el : arr.getAsJsonArray()) {
+                if (el != null && el.isJsonPrimitive()) {
+                    out.add(el.getAsString());
+                }
+            }
+        }
+        if (out.isEmpty() && legacy != null && !legacy.isEmpty()) {
+            out.add(legacy);
+        }
+        return out;
     }
 
     private static String opt(JsonObject o, String key) {

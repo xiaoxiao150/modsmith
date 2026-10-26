@@ -16,6 +16,7 @@ import { sampleOf } from './calibrate-core.mjs';
 import { checkServerMods } from './server-fingerprint.mjs';
 import { makeRcon } from './rcon.mjs';
 import { fallbackTag } from './tag-fallback.mjs';
+import { vanillaItemTable } from './recipes-join.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -162,9 +163,20 @@ export default async function cmdVerify(args, io) {
   //   - sidecar-recipe：放材料 → 发命令 → 等产物（服务端代做）
   //   - two-step-use：放料 → 换工具 → 右键 → 等产物（真实交互，机器人会做的动作）
   if (args.stations === true) {
-    const stations = (manifest.stations ?? []).filter((st) =>
-      (st.kind === 'sidecar-recipe' || st.kind === 'two-step-use') && st.recipeType);
-    if (stations.length === 0) add('station', false, '没有可执行的站点（先跑 learn --infer）');
+    const all = manifest.stations ?? [];
+    if (all.length === 0) add('station', false, '没有可执行的站点（先跑 learn --infer）');
+    // **不许静默跳过**：以前这个 filter 把 place-and-wait 直接丢掉，报告里看不到任何
+    // 痕迹——那正是"静默失败"。现在没有 recipeType 的、以及执行器还没覆盖的类型，
+    // 都要显式列出来。
+    const EXECUTABLE = new Set(['sidecar-recipe', 'two-step-use', 'place-and-wait']);
+    for (const st of all) {
+      if (!st?.recipeType) {
+        add('station', false, `${st?.id ?? '(无 id)'}：站点缺 recipeType，没法挑配方执行`);
+      } else if (!EXECUTABLE.has(st.kind)) {
+        add('station', false, `${st.id}：机制 ${st.kind} 还没有执行器（已知但未验）`);
+      }
+    }
+    const stations = all.filter((st) => EXECUTABLE.has(st.kind) && st.recipeType);
 
     // 两步式站点：需要把物品放上去、再手持工具右键。用真实交互而不是命令，
     // 这样验的是"机器人能不能做得到"，不是"服务端能不能代做"。
@@ -220,6 +232,9 @@ export default async function cmdVerify(args, io) {
     // result / results / result[] 三种。verify 要在 recipes 之前也能跑（jar 清单），
     // 所以这里统一成一个读取器，而不是假设某一种形状。
     const refName = (x) => (typeof x === 'string' ? x : x?.id ?? x?.item?.id ?? x?.item ?? null);
+    // join 时 vanilla 类型剥掉了 `minecraft:` 前缀（smoking、campfire_cooking），
+    // 而站点的 recipeType 是完整 id。两边都归一化再比。
+    const normType = (t) => String(t ?? '').replace(/^minecraft:/, '');
     const ingList = (r) => (r.ingredients ?? [])
       .map((g) => (Array.isArray(g) ? g.map(refName).filter(Boolean) : [refName(g)].filter(Boolean)))
       .filter((g) => g.length > 0);
@@ -232,7 +247,7 @@ export default async function cmdVerify(args, io) {
     for (const st of stations) {
       // 产物可能挂在 result（单个）或 results[]（多产物，如 cutting）。两种都要认，
       // 否则 105 条 cutting 配方会被一条都筛不出来（实测）。
-      const recipes = (manifest.recipes ?? []).filter((r) => r.type === st.recipeType && outId(r));
+      const recipes = (manifest.recipes ?? []).filter((r) => normType(r.type) === normType(st.recipeType) && outId(r));
       if (recipes.length === 0) {
         add('station', false, `${st.id}：manifest 里没有 ${st.recipeType} 的配方（或产物都没解析出来）`);
         continue;
@@ -311,6 +326,62 @@ export default async function cmdVerify(args, io) {
         add('station', !!got, got
           ? `${st.id}（两步，${placedMats.length} 种料）：${matDesc} + ${toolItem.name.split(':').pop()} → ${got.name}`
           : `${st.id}（两步）：${matDesc} + ${toolItem.name} 右键后没拿到 ${expect ?? '产物'}`);
+        await cmd(`setblock ${pos.x} ${pos.y} ${pos.z} minecraft:air`);
+        await sleep(200);
+        continue;
+      }
+
+      if (st.kind === 'place-and-wait') {
+        // 被动加工：放上去等，产物**弹成掉落物**（不是进背包）。
+        // 所以判据是"附近出现了对应的 item 实体"或"背包里有了"，两者都算成功。
+        const groups = ingList(rec);
+        if (groups.length === 0) {
+          add('station', false, `${st.id}：配方没有原料，没法执行`);
+          await cmd(`setblock ${pos.x} ${pos.y} ${pos.z} minecraft:air`);
+          continue;
+        }
+        await cmd(`setblock ${pos.x} ${pos.y - 1} ${pos.z} minecraft:stone`);
+        const name = groups[0][0];
+        const item = await dropAt(name);
+        if (!item) {
+          add('station', false, `${st.id}：拿不到材料 ${name}`);
+          await cmd(`setblock ${pos.x} ${pos.y} ${pos.z} minecraft:air`);
+          continue;
+        }
+        try { await bot.equip(item, 'hand'); } catch { /* */ }
+        const put = await rightClickBlock(pos);
+        if (!put.ok) {
+          add('station', false, `${st.id}：放料时右键失败（${put.why}）`);
+          await cmd(`setblock ${pos.x} ${pos.y} ${pos.z} minecraft:air`);
+          continue;
+        }
+        const expectId = outId(rec);
+        // 掉落物只能按数字 id 认（模组物品名可能是 unknown）。模组物品在 ids.items，
+        // 原版物品（营火烤出来的熟肉之类）在 vanilla 表里。
+        const expectNumeric = ids.items?.[expectId]
+          ?? Number(Object.entries(vanillaItemTable(String(args['mc-version'] ?? '1.21.1')))
+            .find(([, name]) => name === expectId)?.[0]);
+        const waitMs = Number(st.waitMs) || (Number(rec.cooking_time) || 200) * 50 + 4000;
+        const deadline = Date.now() + waitMs;
+        let got = null;
+        let dropped = null;
+        while (!got && !dropped && Date.now() < deadline) {
+          got = (bot.inventory?.items?.() ?? []).find((it) =>
+            it.name === expectId || it.name === String(expectId).split(':').pop()) ?? null;
+          if (!got) {
+            // 被动加工的产物是掉落物：item 实体的槽位在 metadata[8]，按数字 id 认
+            // （模组物品在未注入注册表时名字可能是 unknown，只有 type 是真的）。
+            dropped = Object.values(bot.entities ?? {}).find((e) =>
+              e?.name === 'item'
+              && typeof expectNumeric === 'number'
+              && e?.metadata?.[8]?.itemId === expectNumeric) ?? null;
+          }
+          if (!got && !dropped) await sleep(300);
+        }
+        add('station', !!got || !!dropped,
+          got ? `${st.id}（被动）：${name} 等待后 → ${got.name}`
+            : dropped ? `${st.id}（被动）：${name} 等待后产物掉在附近（实体）`
+            : `${st.id}（被动）：${name} 等 ${Math.round(waitMs / 1000)}s 没等到 ${expectId}`);
         await cmd(`setblock ${pos.x} ${pos.y} ${pos.z} minecraft:air`);
         await sleep(200);
         continue;
