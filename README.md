@@ -1,5 +1,7 @@
 # modsmith
 
+> 让每个 mineflayer AI 完全学会玩一个 mod / Let every mineflayer AI fully learn to play a mod.
+
 把 Fabric 模组 jar 变成**任何 mineflayer 机器人能用的语义清单**。
 
 Minecraft 机器人是原版协议客户端。它看不见模组方块、拿不到模组配方、也开不出模组界面——
