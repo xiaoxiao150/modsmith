@@ -68,6 +68,9 @@ const USAGE = `modsmith ${VERSION} — 把 Fabric mod jar 变成机器人能用�
 
       --capture <file>     原始捕获（默认 <manifest 同名>-recipes.raw.bin）
       --ids <file>         数字 id 反查表（默认 <manifest 同名>-ids.json）
+      --ids-all <dir>      同一服务器装了多个包时，把目录里所有 *-ids.json 合起来用
+                           （捕获的配方是整台服务器的，第二份清单必然碰到别人的物品；
+                           各份 ids 指纹必须一致，否则拒绝——id 随注册顺序整体位移）
       --serializers <file> 模组自定义序列化器文法（默认 sidesheets/<pack>.serializers.json）
       --write              真写回 manifest（默认试运行）
       --threshold <0..1>   成功率闸门，默认 0.95

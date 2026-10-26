@@ -766,3 +766,39 @@ export function sidesheetFromDiscovery(result, { mod = '' } = {}) {
     _notes: result.notes,
   };
 }
+
+/**
+ * `--accept` 的合并规则（纯函数）。
+ *
+ * 真实事故：第一次 `--accept` 采纳了 4 个文法，紧接着再跑一次时发现阶段"没有新的"
+ * （正式 sidesheet 里的类型已经解出来了），旧实现照样用空表覆盖正式文件——**人工核对过
+ * 的文法被一次重跑抹掉**，而且报告只说"已采纳 0 个"。
+ *
+ * 规则：
+ *   - 只收有名字的条目：名字不在 wire 上，`name: null` 进正式表也用不了，留在待审文件里
+ *   - 与已有条目按 typeId 合并：新发现覆盖同 id，其余原样保留（换 jar 组合时编号会位移，
+ *     旧条目可能已经指向别的序列化器——所以覆盖是需要的，但不能删别的）
+ *   - 一个都没有时**不写**，由调用方决定是否提示
+ *
+ * @returns {{next: Record<string, object>, added: string[], replaced: string[], kept: string[], skipped: string[]}}
+ */
+export function mergeAccepted(existingSerializers = {}, discovered = []) {
+  const next = { ...(existingSerializers ?? {}) };
+  const added = [];
+  const replaced = [];
+  const skipped = [];
+  for (const d of discovered) {
+    const id = String(d.typeId);
+    if (!d.name) { skipped.push(id); continue; }
+    const entry = { name: d.name, fields: d.fields, _confirmed: true, _shape: d.shape };
+    if (next[id]) replaced.push(id); else added.push(id);
+    next[id] = entry;
+  }
+  return {
+    next,
+    added,
+    replaced,
+    kept: Object.keys(next).filter((k) => !added.includes(k) && !replaced.includes(k)),
+    skipped,
+  };
+}

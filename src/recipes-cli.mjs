@@ -15,8 +15,9 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { dirname, join, resolve } from 'node:path';
 import { parseDeclareRecipes } from './recipes.mjs';
 import { vanillaItemTable, joinRecipes } from './recipes-join.mjs';
-import { discoverSerializers, sidesheetFromDiscovery } from './recipes-discover.mjs';
+import { discoverSerializers, sidesheetFromDiscovery, mergeAccepted } from './recipes-discover.mjs';
 import { readManifest, writeManifest } from './manifest-io.mjs';
+import { mergeIdsTables } from './ids-merge.mjs';
 import { Zip } from './zip.mjs';
 
 /**
@@ -73,6 +74,38 @@ export default async function cmdRecipes(args, io) {
   }
   const ids = readManifest(idsPath);
   if (!ids?.items) io.fatal(`读不了 ids（物品反查表）：${idsPath}`);
+
+  // 同一个服务器装了多个包时，捕获的 declare_recipes 是**整台服务器**的配方：第二份清单
+  // 翻译时必然碰到别的包的物品。只拿自己那份 ids 会有一大批"翻不出物品名"（实测
+  // MD+FD 时 302/1631）。--ids-all 把目录里所有 *-ids.json 合起来用。
+  if (typeof args['ids-all'] === 'string') {
+    const dir = String(args['ids-all']);
+    const files = existsSync(dir) ? readdirSync(dir).filter((f) => /-ids\.json$/.test(f)) : [];
+    if (files.length === 0) io.fatal(`--ids-all ${dir}：目录里没有 *-ids.json`);
+    const others = [];
+    for (const f of files.sort()) {
+      if (join(dir, f) === resolve(idsPath)) continue;
+      const other = readManifest(join(dir, f));
+      if (other?.items) others.push({ file: f, ids: other });
+    }
+    const merged = mergeIdsTables(ids, others);
+    // 指纹闸：不同 mod 组合下量出来的数字 id 不能混用（id 随注册顺序整体位移）。
+    // 只查"同名冲突"不够——没冲突的两份表照样可能整体错位，那是最难发现的错名。
+    if (merged.fingerprints.length > 1) {
+      io.fatal(`--ids-all 里的 ids 来自 ${merged.fingerprints.length} 套不同的 mods 组合（指纹不一致）：`
+        + '先按当前 mods 目录把每个包都重跑一次 calibrate');
+    }
+    if (merged.missingFingerprint.length > 0) {
+      console.error(`  ! 这些 ids 没记 mods 指纹，无法确认是同一套组合：${merged.missingFingerprint.join(', ')}`);
+    }
+    if (merged.conflicts.length > 0) {
+      for (const c of merged.conflicts.slice(0, 5)) console.error(`  ! id 冲突 ${c}`);
+      io.fatal(`ids 冲突 ${merged.conflicts.length} 条：这些 ids 是不同 jar 组合下量的，先按当前 mods 目录重跑 calibrate`);
+    }
+    ids.items = merged.items;
+    ids.blocks = merged.blocks;
+    console.error(`  ids 合并了 ${files.length} 份（--ids-all）：物品 ${Object.keys(ids.items).length} 条`);
+  }
 
   // 文法：模组自定义序列化器来自 sidesheets（键是数字编号）
   const sidecarPath = String(args.serializers ?? `./sidesheets/${manifest.mod.replace(/-/g, '_').replace(/_([0-9]+_[0-9]+)$/, '-$1')}.serializers.json`);
@@ -145,17 +178,35 @@ export default async function cmdRecipes(args, io) {
     // 生效的前提是人显式跑了 --accept。
     if (args.accept === true) {
       if (!result.ok) io.fatal('发现没整包走通，不能采纳（先把名字清单/形状补齐）');
-      const formal = {
-        _comment: `由 modsmith recipes --discover 产出、经人 --accept 采纳（${manifest.mod}）。`
-          + ' name 来自清单里该类型配方的 type 字段；字段语义请对照样例值与备选核对。'
-          + ' 编号是这台服务器的注册顺序，换 jar 组合会整体位移。',
-        serializers: {},
-      };
-      for (const d of result.discovered) {
-        formal.serializers[String(d.typeId)] = { name: d.name ?? null, fields: d.fields, _confirmed: true, _shape: d.shape };
+      // 合并而不是整表覆盖：重跑 accept 时"没有新发现"是常态（类型已经被现有 sidesheet
+      // 解出来），旧实现这时写空表，把人工核对过的文法抹掉（实测）。
+      let existing = {};
+      try {
+        existing = JSON.parse(readFileSync(sidecarPath, 'utf8')).serializers ?? {};
+      } catch { /* 还没有正式表 */ }
+      const merged = mergeAccepted(existing, result.discovered);
+      if (merged.added.length + merged.replaced.length === 0) {
+        console.error(`  没有可采纳的条目（现有 ${Object.keys(existing).length} 条形文法保持不变；`
+          + `待审里 ${merged.skipped.length} 条没名字）`);
+      } else {
+        const formal = {
+          _comment: `由 modsmith recipes --discover 产出、经人 --accept 采纳（${manifest.mod}）。`
+            + ' name 来自清单里该类型配方的 type 字段；字段语义请对照样例值与备选核对。'
+            + ' 编号是这台服务器的注册顺序，换 jar 组合会整体位移。',
+          serializers: merged.next,
+        };
+        mkdirSync(dirname(resolve(sidecarPath)), { recursive: true });
+        writeFileSync(sidecarPath, JSON.stringify(formal, null, 2) + '\n');
+        const bits = [
+          merged.added.length ? `新增 ${merged.added.length}` : '',
+          merged.replaced.length ? `更新 ${merged.replaced.length}` : '',
+          merged.kept.length ? `保留 ${merged.kept.length}` : '',
+        ].filter(Boolean).join(' / ');
+        console.error(`  ✓ 已采纳（${bits}）到 ${sidecarPath}`);
+        if (merged.skipped.length > 0) {
+          console.error(`  · #${merged.skipped.join(', #')} 没名字，留在待审文件里——从 mod 源码确认后手填`);
+        }
       }
-      writeFileSync(sidecarPath, JSON.stringify(formal, null, 2) + '\n');
-      console.error(`  ✓ 已采纳 ${result.discovered.length} 个序列化器到 ${sidecarPath}`);
       console.error(`  下一步：modsmith recipes <manifest> --serializers ${sidecarPath} --write`);
     }
     const outPath = String(args.out ?? sidecarPath.replace(/\.serializers\.json$/, '.serializers.discovered.json'));
