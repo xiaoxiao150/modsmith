@@ -208,7 +208,16 @@ async function cmdLearn(args) {
   if (!manifestPath) fatal('learn 要给一个 manifest 路径');
   if (!existsSync(manifestPath)) fatal(`找不到 ${manifestPath}`);
 
-  const { learn } = await import('../src/learn.mjs');
+  const { learn, learnStations } = await import('../src/learn.mjs');
+
+  // --infer：规则优先，不调模型。从清单证据推工作站（L3 的默认路径）。
+  if (args.infer === true) {
+    const result = await learnStations(manifestPath, {}, { fatal });
+    if (!result.ok) fatal('规则推断没得到工作站');
+    console.log(manifestPath);
+    return;
+  }
+
   const { askModel, probeModel } = await import('../src/llm.mjs');
 
   const probeInfo = await probeModel();

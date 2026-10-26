@@ -12,6 +12,7 @@
  * 验证：产出的站点用真实服务器 dry-run 一遍，失败的带错误重试
  */
 import { readManifest, writeManifest } from './manifest-io.mjs';
+import { inferStations } from './stations.mjs';
 
 /** 已知的站点机制。LLM 只能从这里面挑，不许发明新的。 */
 export const STATION_KINDS = {
@@ -249,4 +250,34 @@ export async function learn(manifestPath, { ask, probe, rounds = 3, wikiText = '
 
   console.error(`✗ ${rounds} 轮都没拿到可用结果：${lastErrors.slice(0, 5).join('；')}`);
   return { ok: false, manifest, errors: lastErrors };
+}
+
+/**
+ * 规则优先的站点推断（不调 LLM）。
+ *
+ * `learn --infer` 走这条：从清单里能验的证据（自定义配方类型、工具字段、方块名、
+ * probe 实测的开窗行为）推出工作站。产出带 `needsReview: true`——机制判断错了下游
+ * 会白试，所以默认让人扫一眼再采纳。
+ *
+ * @param {string} manifestPath
+ * @param {{evidence?: Record<string, {opensWindow?: boolean, windowType?: string}>}} opts
+ */
+export async function learnStations(manifestPath, opts = {}, io) {
+  const manifest = readManifest(manifestPath);
+  if (!manifest) io.fatal(`读不了 manifest：${manifestPath}`);
+  const { stations, notes, skipped } = inferStations(manifest, opts);
+
+  for (const line of notes) console.error(`  · ${line}`);
+  for (const x of skipped) console.error(`  - 跳过 ${x.type}：${x.why}`);
+
+  if (stations.length === 0) {
+    console.error('✗ 没能从清单里推出任何工作站：这个 mod 可能没有"放材料加工"的方块（纯装饰/装备/食物）');
+    return { ok: false, manifest, stations: [] };
+  }
+
+  applyLearned(manifest, { stations, prompt: '', unsupported: [] });
+  writeManifest(manifestPath, manifest);
+  console.error(`✓ 推断出 ${stations.length} 个工作站（needsReview: true，人工核对后再采信）`);
+  console.error('  下一步：modsmith sidecar <manifest> 生成侧车配置；two-step 站点由机器人直接操作');
+  return { ok: true, manifest, stations };
 }
