@@ -74,9 +74,13 @@ modsmith recipes <manifest> --write
 # → 服务端真配方翻进清单
 ```
 
-暮色森林实测：`--accept` 产出的 sidesheet 直接可用，2143 条配方 100% 翻译；17 个文法里
+暮色森林实测：`--accept` 产出的 sidesheet 直接可用，2134 条配方 100% 翻译；17 个文法里
 15 个与人审结果逐字段一致，另外 2 个是线上同形的等价拆分（scepter 的 i32+varint、
 no_template 的 string/varints——字节一样，语义由人按备选表选）。
+
+`onboard` 走到 recipes 遇到新序列化器时会停在这一步、把表打印出来（**不写清单**）：
+人跑一次 `recipes --discover --accept` 生成正式 sidesheet，再 `onboard --resume`
+继续，recipes 才会写回。这条"停一次、审一次"的节奏是故意的——机器不替人拍板。
 
 表里每条带：出现的次数、命中物品、**首条样例**（对着配方 JSON 核语义用的原始值）和
 **线上同形的备选**。i32 与 f32 都是 4 字节、`ingredient` 与 `list[slot]` 是同一段 wire——

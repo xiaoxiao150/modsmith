@@ -145,7 +145,10 @@ export default async function cmdSidecar(args, io) {
 
   const stations = (manifest.stations ?? []).filter((s) => s.kind === 'sidecar-recipe');
   if (stations.length === 0) {
-    io.fatal('这份 manifest 里没有 sidecar-recipe 型站点；跑 modsmith learn 先');
+    // 没有侧车型站点不是错误：很多 mod 就是没有"右键执行配方"的站点。
+    // onboard 的链条不该因为这一步退 1（learn 之前的 manifest 本来就没有站点）。
+    console.error('  这份 manifest 里没有 sidecar-recipe 型站点，跳过（站点要 modsmith learn 才有）');
+    return;
   }
   const only = typeof args.station === 'string' ? args.station : null;
   const targets = only ? stations.filter((s) => s.id === only) : stations;
