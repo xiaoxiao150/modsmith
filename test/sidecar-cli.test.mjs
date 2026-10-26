@@ -63,6 +63,8 @@ test('sidecar 产出通用模组读的站点配置（不是每站点一份代码
       label: 'pot',
       command: 'pot',
       block: 'tinymod:pot',
+      // 新格式数组 + 老格式单值并存：老侧车读 recipeType，新侧车读 recipeTypes
+      recipeTypes: ['tinymod:cooking'],
       recipeType: 'tinymod:cooking',
       cookTime: 200,
       opLevel: 2,
@@ -78,8 +80,9 @@ test('stationConfigOf：声明了 cookTime/heatTag 的站点如实进配置，�
   ], 3);
   assert.deepEqual(cfg[0], {
     id: 'pot', label: '锅', command: 'pot', block: 'tinymod:pot',
-    recipeType: 'tinymod:cooking', cookTime: 600, opLevel: 3, heatTag: 'tinymod:heat_sources',
+    recipeTypes: ['tinymod:cooking'], cookTime: 600, opLevel: 3, heatTag: 'tinymod:heat_sources',
   });
+  assert.deepEqual(cfg[1].recipeTypes, ['tinymod:cooking'], '没声明类型也落默认类型');
   assert.equal(cfg[1].cookTime, 200);
   assert.equal(cfg[1].heatTag, undefined);
   assert.equal('heatTag' in cfg[1], false, '没声明就不该带 heatTag 键');

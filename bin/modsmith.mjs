@@ -217,6 +217,7 @@ async function cmdLearn(args) {
   if (args.infer === true) {
     const result = await learnStations(manifestPath, {
       evidencePath: typeof args.evidence === 'string' ? args.evidence : undefined,
+      force: args.force === true,
     }, { fatal });
     if (!result.ok) fatal('规则推断没得到工作站');
     console.log(manifestPath);

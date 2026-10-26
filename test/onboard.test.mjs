@@ -120,3 +120,27 @@ test('onboard：evidence 路径从 probe 输出接到 learn 输入（同一个�
   assert.equal(probeOut, learnEv, 'probe 写的文件必须就是 learn 读的文件');
   assert.match(probeOut, /mypack-probe\.json$/);
 });
+
+test('learn --infer 不覆盖人工站点（生产命令被静默改掉会一直重试）', async () => {
+  const { learnStations } = await import('../src/learn.mjs');
+  const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'modsmith-learn-'));
+  try {
+    const p = join(dir, 'm.json');
+    writeFileSync(p, JSON.stringify({
+      mod: 'm', namespace: 'm', containers: [], blocks: { 'm:cooking_pot': {} },
+      items: {}, stations: [{ id: 'cooking_pot', kind: 'sidecar-recipe', block: 'm:cooking_pot', command: '/fdchef cook {recipe}', recipeType: 'm:cooking' }],
+      recipes: [{ id: 'm:cooking/a', type: 'm:cooking', ingredients: [[{ id: 'minecraft:beef' }]] }],
+    }));
+    const io = { fatal: (m) => { throw new Error(m); } };
+    const r = await learnStations(p, {}, io);
+    assert.equal(r.ok, false, '默认不许覆盖');
+    assert.deepEqual(r.kept, ['cooking_pot']);
+    const after = JSON.parse(readFileSync(p, 'utf8'));
+    assert.equal(after.stations[0].command, '/fdchef cook {recipe}', '人工命令必须原样保留');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

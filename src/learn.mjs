@@ -287,6 +287,18 @@ export async function learnStations(manifestPath, opts = {}, io) {
     return { ok: false, manifest, stations: [] };
   }
 
+  // **不许覆盖人工站点**：已有站点里只要有一条不是推断出来的（人手写/审过），
+  // 就整段保留。真实事故：FD 生产清单的厨锅命令是 `/fdchef cook {recipe}`
+  // （另一个侧车），被 --infer 覆盖成 `/cooking_pot cook {recipe}` 后机器人会
+  // 对着不存在的命令一直重试。要覆盖必须显式 --force。
+  const curated = (manifest.stations ?? []).filter((st) => st && st.inferred !== true);
+  if (curated.length > 0 && opts.force !== true) {
+    console.error(`\n  已有 ${curated.length} 条人工站点（${curated.map((x) => x.id).join(', ')}），不覆盖。`);
+    console.error('  这些站点的命令/参数可能是人核对过的；重新推断会静默改掉它们。');
+    console.error('  确实要重推：加 --force。只追加新的：先手工把旧的删掉或改名。');
+    return { ok: false, manifest, stations: [], kept: curated.map((x) => x.id) };
+  }
+
   applyLearned(manifest, { stations, prompt: '', unsupported: [] });
   writeManifest(manifestPath, manifest);
   console.error(`✓ 推断出 ${stations.length} 个工作站（needsReview: true，人工核对后再采信）`);
