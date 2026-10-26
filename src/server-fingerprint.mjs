@@ -21,11 +21,20 @@ export function fingerprintOf(files) {
   return h.digest('hex');
 }
 
+/**
+ * 不参与指纹的文件：`modsmith-sidecar-*` 是我们自己产出的通用侧车。
+ *
+ * 它只注册命令、不注册任何方块/物品，**不可能让 id 位移**；把它算进指纹会让
+ * "装上侧车 → verify 立刻说 ids 过期"——实测在 onboard 链上直接卡死。
+ */
+const IGNORED = [/^modsmith-sidecar.*\.jar$/i];
+
 /** 读一个 mods 目录（顶层文件），算出指纹。目录不存在/读不了会抛，由调用方决定怎么报。 */
 export function fingerprintDir(dir) {
   const names = readdirSync(dir, { withFileTypes: true })
     .filter((e) => e.isFile())
     .map((e) => e.name)
+    .filter((name) => !IGNORED.some((re) => re.test(name)))
     .sort();
   const files = names.map((file) => {
     const buf = readFileSync(join(dir, file));

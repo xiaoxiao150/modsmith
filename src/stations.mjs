@@ -52,13 +52,34 @@ export function commonSuffix(ids) {
  * "brown_mushroom/red_mushroom" 这种同族食材误判成工具（FD 实测：cooking 被判成
  * 两步式、后缀 _mushroom）。
  */
-export function toolSuffixOf(recipes) {
+export function toolSuffixOf(recipes, items = []) {
   const counts = new Map();
+  const bump = (suffix) => counts.set(suffix, (counts.get(suffix) ?? 0) + 1);
   for (const r of recipes) {
-    const list = Array.isArray(r.tool) ? r.tool : null;
-    if (!list || list.length < 2) continue;
-    const s = commonSuffix(list);
-    if (s) counts.set(s, (counts.get(s) ?? 0) + 1);
+    // 服务端真值：tool 是候选物品数组，直接看共同后缀。
+    if (Array.isArray(r.tool) && r.tool.length >= 2) {
+      const s = commonSuffix(r.tool);
+      if (s) bump(s);
+      continue;
+    }
+    // jar 形状：tool 是一个对象，可能是
+    //   {fabric:type:'fabric:any', ingredients:[{fabric:type:…}, {tag:'c:tools/knife'}]}
+    //   或 {fabric:type:'farmersdelight:item_ability', action:'axe_strip'}
+    // 标签 `c:tools/knife` 等价于"名字以 _knife 结尾的物品"，能反推后缀。
+    const tags = [];
+    const walk = (obj) => {
+      if (!obj || typeof obj !== 'object') return;
+      if (typeof obj.tag === 'string') tags.push(obj.tag);
+      for (const v of Object.values(obj)) if (v && typeof v === 'object') walk(v);
+    };
+    walk(r.tool);
+    for (const tag of tags) {
+      const seg = String(tag).split('/').pop();
+      // tools/knife → _knife；tools/axes → _axe（单复数差一个 s）
+      for (const cand of [`_${seg}`, `_${seg.replace(/s$/, '')}`]) {
+        if (items.some((it) => String(it).endsWith(cand))) { bump(cand); break; }
+      }
+    }
   }
   const best = [...counts].sort((a, b) => b[1] - a[1])[0];
   return best && best[1] >= 2 ? { suffix: best[0], hits: best[1] } : null;
@@ -122,7 +143,7 @@ export function inferStations(manifest, opts = {}) {
       skipped.push({ type, why: `${chosen} 已被别的类型占用` });
       continue;
     }
-    const tool = toolSuffixOf(recipes);
+    const tool = toolSuffixOf(recipes, Object.keys(manifest.items ?? {}));
     const ev = evidence[chosen] ?? {};
     const customWindow = ev.opensWindow === true && ev.windowType && !/^minecraft:generic_\d+x\d+$/.test(ev.windowType);
     const id = shortName(chosen).replace(/[^a-z0-9_]/g, '_');
@@ -176,6 +197,21 @@ export function inferStations(manifest, opts = {}) {
 export function scanCandidates(manifest, { limit = 400 } = {}) {
   const containers = new Set(manifest.containers ?? []);
   const stationBlocks = new Set((manifest.stations ?? []).map((s) => s.block));
+  // 第一次接入时 manifest 还没有 stations：用"自定义配方类型 → 词干匹配方块"先把
+  // 最可能的工作站挑出来（cooking→cooking_pot）。不这么做，第一次跑只会扫一堆
+  // 装饰方块，证据里没有真正决定机制的那几个（实测：链上两个站点都没被扫到）。
+  const namespace = manifest.namespace ?? String(manifest.mod ?? '').replace(/-/g, '_');
+  const typeStems = new Set();
+  for (const r of manifest.recipes ?? []) {
+    const t = String(r.type ?? '');
+    if (!t.startsWith(`${namespace}:`) || VANILLA_STATION_TYPES.has(t)) continue;
+    typeStems.add(t);
+  }
+  const stemMatches = new Set();
+  for (const t of typeStems) {
+    const { chosen } = matchBlock(t, manifest, containers);
+    if (chosen) stemMatches.add(chosen);
+  }
   const DECOR = /_(leaves|log|wood|planks|slab|stairs|wall|fence|fence_gate|carpet|door|trapdoor|button|pressure_plate|sign|banner|torch|lantern|ore|crop|seed|sapling|flower|grass|fern|vine|roots|mushroom_block|bud|petals|dripleaf|kelp|coral)$/;
   const candidates = [];
   const stationCandidate = [];
@@ -188,7 +224,7 @@ export function scanCandidates(manifest, { limit = 400 } = {}) {
     // 机制（有私有 GUI 就必须走侧车）。probe 的站点流程只验"声明 vs 实测"，不给
     // 推断提供证据。不扫它们，扫描结果对站点判断毫无帮助（FD 实测：两个站点都被跳过，
     // 带不带证据结果完全一样）。
-    if (stationBlocks.has(name)) { stationCandidate.push(name); continue; }
+    if (stationBlocks.has(name) || stemMatches.has(name)) { stationCandidate.push(name); continue; }
     const states = spec?.states ?? [];
     if (states.length > 2) { multiState += 1; continue; }
     if (DECOR.test(shortName(name))) { decorative += 1; continue; }

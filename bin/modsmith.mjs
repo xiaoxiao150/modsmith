@@ -291,12 +291,17 @@ async function cmdOnboard(args) {
   const manifestPath = join(modsDir, `${pack}.json`);
   const idsPath = join(modsDir, `${pack}-ids.json`);
   let hasServerRecipes = false;
+  let hasStations = false;
   if (existsSync(manifestPath)) {
     try {
       const m = JSON.parse(readFileSync(manifestPath, 'utf8'));
       hasServerRecipes = (m.recipes ?? []).some((r) => r?._source === 'server');
+      // 有非 inferred 的站点 = 人已经审过（或历史上手写过），--resume 时才算完成。
+      // 只有 inferred/needsReview 的站点仍要重跑：证据变了机制可能变。
+      hasStations = (m.stations ?? []).some((st) => st && st.inferred !== true);
     } catch { /* 清单坏了就当没有，inspect 会重写 */ }
   }
+  const probePath = join(modsDir, `${pack}-probe.json`);
   const plan = onboardPlan({
     jar,
     pack,
@@ -308,7 +313,13 @@ async function cmdOnboard(args) {
     },
     skip: typeof args.skip === 'string' ? args.skip.split(',').map((s) => s.trim()).filter(Boolean) : [],
     resume: args.resume === true,
-    artifacts: { manifest: existsSync(manifestPath), ids: existsSync(idsPath), serverRecipes: hasServerRecipes },
+    artifacts: {
+      manifest: existsSync(manifestPath),
+      ids: existsSync(idsPath),
+      probe: existsSync(probePath),
+      stations: hasStations,
+      serverRecipes: hasServerRecipes,
+    },
     dryRecipes: args['dry-recipes'] === true,
     noBuild: args['no-build'] === true,
   });

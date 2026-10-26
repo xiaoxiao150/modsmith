@@ -216,16 +216,41 @@ export default async function cmdVerify(args, io) {
       }
     };
 
+    // 配方形状有两代：服务端真值 `{id}` / jar 形状 `{item: {id}}`，产物的挂法也有
+    // result / results / result[] 三种。verify 要在 recipes 之前也能跑（jar 清单），
+    // 所以这里统一成一个读取器，而不是假设某一种形状。
+    const refName = (x) => (typeof x === 'string' ? x : x?.id ?? x?.item?.id ?? x?.item ?? null);
+    const ingList = (r) => (r.ingredients ?? [])
+      .map((g) => (Array.isArray(g) ? g.map(refName).filter(Boolean) : [refName(g)].filter(Boolean)))
+      .filter((g) => g.length > 0);
+    const outId = (r) => {
+      const first = Array.isArray(r.results) ? r.results[0] : Array.isArray(r.result) ? r.result[0] : null;
+      return refName(r.result) ?? refName(first) ?? refName(r.results?.[0]) ?? null;
+    };
+    const toolIds = (r) => (Array.isArray(r.tool) ? r.tool.map(refName).filter(Boolean) : []);
+
     for (const st of stations) {
       // 产物可能挂在 result（单个）或 results[]（多产物，如 cutting）。两种都要认，
       // 否则 105 条 cutting 配方会被一条都筛不出来（实测）。
-      const recipes = (manifest.recipes ?? []).filter((r) =>
-        r.type === st.recipeType && (r.result?.id || (Array.isArray(r.results) && r.results[0]?.id)));
+      const recipes = (manifest.recipes ?? []).filter((r) => r.type === st.recipeType && outId(r));
       if (recipes.length === 0) {
-        add('station', false, `${st.id}：manifest 里没有 ${st.recipeType} 的配方`);
+        add('station', false, `${st.id}：manifest 里没有 ${st.recipeType} 的配方（或产物都没解析出来）`);
         continue;
       }
-      const rec = recipes[0];
+      // 挑一条**有代表性的**配方，不是最大的：
+      //   - 必须有 tool（否则两步式执行不了）
+      //   - 原料 2-4 种最好：单原料验不出"逐个放料"，十几种植物的配方会把执行拖成
+      //    十几轮右键（FD 有 10 种原料的家具拆解），失败时也难说是哪一步的问题
+      const ingCount = (r) => ingList(r).length;
+      const hasTool = (r) => (toolIds(r).length > 0 ? 1 : 0);
+      const scored = [...recipes].sort((a, b) => {
+        const ia = ingCount(a);
+        const ib = ingCount(b);
+        // 先按"是不是 2-4 种"分组，再按有无工具
+        const band = (n) => (n >= 2 && n <= 4 ? 0 : n === 1 ? 1 : 2);
+        return band(ia) - band(ib) || hasTool(b) - hasTool(a) || ia - ib;
+      });
+      const rec = scored[0];
       const pos = { x: bx + 2, y: by, z: bz };
       const placed = await cmd(`setblock ${pos.x} ${pos.y} ${pos.z} ${st.block}`);
       if (/failed|unknown|invalid/i.test(placed)) {
@@ -234,45 +259,58 @@ export default async function cmdVerify(args, io) {
       }
 
       if (st.kind === 'two-step-use') {
-        // 两步式：先放料（右键），再换工具（右键）。
-        const first = rec.ingredients?.[0]?.id;
-        const toolList = (rec.tool ?? []).map((t) => t.id).filter(Boolean);
-        if (!first || toolList.length === 0) {
-          add('station', false, `${st.id}：配方缺 ingredients[0] 或 tool，没法执行`);
+        // 两步式：**每一种原料各右键一次**，然后换工具右键开工。
+        // 只放第一种是真实缺缺陷：FD 有 12 条 cutting 配方要 2 种以上原料，
+        // 那种配方会"材料不够"失败，而机器人会以为是配方本身不对。
+        // ingList 已经把两种形状（[[{id}]] 与 [{id}]）统一成"每格一个候选名数组"。
+        const groups = ingList(rec);
+        const toolList = toolIds(rec);
+        if (groups.length === 0 || toolList.length === 0) {
+          add('station', false, `${st.id}：配方缺 ingredients 或 tool，没法执行`);
           await cmd(`setblock ${pos.x} ${pos.y} ${pos.z} minecraft:air`);
           continue;
         }
         await cmd(`setblock ${pos.x} ${pos.y - 1} ${pos.z} minecraft:stone`);
-        const item = await dropAt(first);
-        if (!item) {
-          add('station', false, `${st.id}：拿不到材料 ${first}`);
+
+        const placedMats = [];
+        let putFail = null;
+        for (const group of groups) {
+          const name = group[0];
+          if (!name) continue;
+          const item = await dropAt(name);
+          if (!item) { putFail = `拿不到材料 ${name}`; break; }
+          try { await bot.equip(item, 'hand'); } catch { /* 装备失败也让右键试一次 */ }
+          const put = await rightClickBlock(pos);
+          if (!put.ok) { putFail = `放 ${name} 时右键失败（${put.why}）`; break; }
+          placedMats.push(name);
+          await sleep(350);   // 每个之间留一点：服务端要处理上一次交互
+        }
+        if (putFail) {
+          add('station', false, `${st.id}：${putFail}（已放 ${placedMats.length}/${groups.length}）`);
           await cmd(`setblock ${pos.x} ${pos.y} ${pos.z} minecraft:air`);
           continue;
         }
-        try { await bot.equip(item, 'hand'); } catch { /* 拿在手上失败也继续：activateBlock 会告诉结果 */ }
-        const put = await rightClickBlock(pos);
-        if (!put.ok) add('station', false, `${st.id}：放料时右键失败（${put.why}）`);
 
         // 换工具：优先那个后缀对得上的（站点声明了 toolSuffix）
-        await sleep(500);
         let toolItem = null;
         for (const t of toolList) {
           toolItem = await dropAt(t);
           if (toolItem) break;
         }
         if (!toolItem) {
-          add('station', false, `${st.id}：材料放了，但一件工具都拿不到（${toolList.slice(0, 3).join(', ')}…）`);
+          add('station', false, `${st.id}：材料放齐了，但一件工具都拿不到（${toolList.slice(0, 3).join(', ')}…）`);
           await cmd(`setblock ${pos.x} ${pos.y} ${pos.z} minecraft:air`);
           continue;
         }
         try { await bot.equip(toolItem, 'hand'); } catch { /* */ }
         const proc = await rightClickBlock(pos);
         if (!proc.ok) add('station', false, `${st.id}：开工右键失败（${proc.why}）`);
-        const expect = rec.results?.[0]?.id ?? rec.result?.id;
+        const expect = outId(rec);
         const got = expect ? await waitItem(expect, 8000) : null;
+        const matDesc = placedMats.map((m) => m.split(':').pop()).join(' + ');
         add('station', !!got, got
-          ? `${st.id}（两步）：${first} + ${toolItem.name} → ${got.name}`
-          : `${st.id}（两步）：${first} + ${toolItem.name} 右键后没拿到 ${expect ?? '产物'}`);
+          ? `${st.id}（两步，${placedMats.length} 种料）：${matDesc} + ${toolItem.name.split(':').pop()} → ${got.name}`
+          : `${st.id}（两步）：${matDesc} + ${toolItem.name} 右键后没拿到 ${expect ?? '产物'}`);
         await cmd(`setblock ${pos.x} ${pos.y} ${pos.z} minecraft:air`);
         await sleep(200);
         continue;
@@ -280,26 +318,27 @@ export default async function cmdVerify(args, io) {
 
       await cmd(`clear ${username}`);
       const wanted = [];
-      for (const cell of rec.ingredients ?? []) {
-        const name = cell?.[0]?.id;
+      for (const cell of ingList(rec)) {
+        const name = cell[0];
         if (name) { wanted.push(name); await cmd(`give ${username} ${name} 1`); }
       }
       await sleep(400);
       const cmdName = String(st.command ?? `/${st.id} cook {recipe}`).replace(/^\//, '').split(' ')[0];
       bot.chat(`/${cmdName} cook ${rec.id}`);
-      const cookMs = (Number(st.cookTime) || Number(rec.cooking_time) || 200) * 50 + 4000;
+      const cookMs = (Number(rec.cooking_time) || Number(st.cookTime) || 200) * 50 + 5000;
       const deadline = Date.now() + cookMs;
       let got = null;
+      const expectId = outId(rec);
       while (!got && Date.now() < deadline) {
         const list = bot.inventory?.items?.() ?? [];
-        const short = String(rec.result.id).split(':').pop();
-        got = list.find((it) => it.name === rec.result.id || it.name === short) ?? null;
+        const short = String(expectId).split(':').pop();
+        got = list.find((it) => it.name === expectId || it.name === short) ?? null;
         if (!got) await sleep(250);
       }
       const cost = wanted.length ? `（材料 ${wanted.length} 种）` : '';
       add('station', !!got, got
         ? `${st.id}：${rec.id}${cost} → ${got.name}`
-        : `${st.id}：命令发出后 ${Math.round(cookMs / 1000)}s 内没拿到 ${rec.result.id}${cost}`);
+        : `${st.id}：命令发出后 ${Math.round(cookMs / 1000)}s 内没拿到 ${expectId}${cost}`);
       await cmd(`setblock ${pos.x} ${pos.y} ${pos.z} minecraft:air`);
       await sleep(200);
     }

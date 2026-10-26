@@ -37,6 +37,8 @@ export function onboardPlan(opts) {
   const dir = modsDir.replace(/[\\/]+$/, '');
   const manifestPath = `${dir}/${pack}.json`;
   const idsPath = `${dir}/${pack}-ids.json`;
+  // probe --scan-blocks 的证据落在这里，learn --infer 直接吃它。
+  const probePath = `${dir}/${pack}-probe.json`;
   const srv = server ?? {};
   const serverArgs = [];
   for (const [flag, value] of [
@@ -65,16 +67,26 @@ export function onboardPlan(opts) {
   return {
     manifestPath,
     idsPath,
+    probePath,
     steps: [
       step('inspect', '静态提取清单', ['inspect', jar, '--out', modsDir, '--pack', pack], Boolean(artifacts.manifest), false),
       step('calibrate', '现场量数字 id', ['calibrate', manifestPath, '--ids', idsPath, ...(resume ? ['--resume'] : []), ...serverArgs], Boolean(artifacts.ids), true),
-      step('probe', '实测容器/站点', ['probe', manifestPath, '--pack', pack, '--mods-dir', modsDir, ...serverArgs], false, true),
-      step('verify', '合成冒烟', ['verify', manifestPath, '--pack', pack, '--ids', idsPath, '--mods-dir', modsDir, ...serverArgs], false, true),
+      // --scan-blocks：把候选方块逐个右键一遍，记录开窗行为——这是 learn --infer 的证据。
+      step('probe', '实测容器/站点 + 方块扫描', ['probe', manifestPath, '--pack', pack, '--mods-dir', modsDir,
+        '--scan-blocks', '--out', probePath, ...serverArgs], Boolean(artifacts.probe), true),
+      // recipes 必须排在 learn/verify **之前**：
+      //   - learn 的工具检测读 `tool` 数组（jar 形状里是 {fabric:type:…} 对象，
+      //     读不出工具 → cutting_board 会被误判成侧车）
+      //   - verify 的站点执行要用服务端真配方（cooking_time、多原料、results[] 形状）
       // --server-mods 要给 recipes：discover 从服务器所有 jar + 原版 jar 扫配方名，
       // 名字清单越全，切段越准（缺了它，新 mod 的发现会卡在名字缺口上）。
       step('recipes', '服务端真配方翻进清单', ['recipes', manifestPath, '--ids', idsPath,
         ...(srv.serverMods ? ['--server-mods', String(srv.serverMods)] : []),
         ...(dryRecipes ? [] : ['--write'])], Boolean(artifacts.serverRecipes), false),
+      // 推断工作站：规则优先，不需要模型；有 probe 证据就用证据。
+      step('learn', '推断工作站与机制', ['learn', manifestPath, '--infer', '--evidence', probePath], Boolean(artifacts.stations), false),
+      step('verify', '合成冒烟 + 站点实测', ['verify', manifestPath, '--pack', pack, '--ids', idsPath, '--mods-dir', modsDir,
+        '--stations', ...serverArgs], false, true),
       step('sidecar', '站点侧车（配置 + 编译）', ['sidecar', manifestPath, '--out', './sidecars', ...(noBuild ? ['--no-build'] : [])], false, false),
     ],
   };

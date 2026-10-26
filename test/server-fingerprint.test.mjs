@@ -94,3 +94,20 @@ test('checkServerMods：老 ids 没指纹是警告不是拒绝；两目录都没
   assert.match(badDir.lines[0], /读不了/);
   rmSync(dir, { recursive: true, force: true });
 });
+
+test('fingerprintDir：自己产出的 sidecar jar 不参与指纹（它不注册方块/物品）', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'modsmith-fp-'));
+  try {
+    writeFileSync(join(dir, 'FarmersDelight-1.21.1-3.3.6+refabricated.jar'), Buffer.from('mod-a'));
+    const base = fingerprintDir(dir).fingerprint;
+    // 装上侧车：指纹必须保持不变，否则 verify 会报"ids 过期"
+    writeFileSync(join(dir, 'modsmith-sidecar-0.1.0.jar'), Buffer.from('our-own-jar'));
+    assert.equal(fingerprintDir(dir).fingerprint, base);
+    assert.ok(!fingerprintDir(dir).files.some((f) => f.file.startsWith('modsmith-sidecar')));
+    // 换一个真的内容 mod：指纹必须变
+    writeFileSync(join(dir, 'OtherMod.jar'), Buffer.from('mod-b'));
+    assert.notEqual(fingerprintDir(dir).fingerprint, base);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

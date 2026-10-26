@@ -11,7 +11,7 @@
  * 守门（错名比未知更糟）：解析必须整包对齐（残包拒绝）；物品名翻不回的条目跳过并计数；
  * 成功率 < 阈值（默认 95%）整份不写。
  */
-import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { parseDeclareRecipes } from './recipes.mjs';
 import { vanillaItemTable, joinRecipes } from './recipes-join.mjs';
@@ -160,6 +160,9 @@ export default async function cmdRecipes(args, io) {
     }
     const outPath = String(args.out ?? sidecarPath.replace(/\.serializers\.json$/, '.serializers.discovered.json'));
     if (args.write === true) {
+      // 新包第一次跑时 ./sidesheets/ 还不存在：不建目录就是 ENOENT（实测在 onboard
+      // 链上直接中断，而且是在"发现成功、只差落盘"之后）。
+      mkdirSync(dirname(resolve(outPath)), { recursive: true });
       writeFileSync(outPath, JSON.stringify(sidesheetFromDiscovery(result, { mod: manifest.mod }), null, 2) + '\n');
       console.error(`  ✓ 待审文法已写入 ${outPath}`);
       console.error(`  下一步（人工）：核对每个 #id 的字段序与字段名 → 抄进 ${sidecarPath} 并填 name → 重跑 modsmith recipes --write`);
@@ -184,6 +187,12 @@ export default async function cmdRecipes(args, io) {
     if (/未知序列化器编号/.test(err.message) && args['no-discover'] !== true) {
       console.error(`  ! ${String(err.message).split('（')[0]}：自动跑一次文法发现（产物待审，不会自动生效）`);
       runDiscover();
+      if (args.write === true) {
+        // --write 时不能"发现了但没写清单"就返回成功：onboard 会以为这一步过了，
+        // 后面拿着 javar 形状的配方去执行站点（熟成时间缺失、多原料形状不同），
+        // 得到的是假失败。这里必须停下，等人审 + --accept。
+        io.fatal('recipes 没有写回：文法还要人审。核对上表 → modsmith recipes <manifest> --discover --accept → 重跑 onboard --resume');
+      }
       console.error('  下一步：核对上面的表，重跑同一条命令并加 --write 落盘，再把确认的条目抄进正式 sidesheet');
       return;
     }

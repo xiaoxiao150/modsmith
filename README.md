@@ -17,16 +17,17 @@ from a live server you own (OP + RCON required) and keeps the mapping
 fingerprinted. Docs are Chinese-first; this README and `AGENTS.md` carry the
 full design notes.
 
-## 状态（0.4.0 预览）
+## 状态（0.4.1 预览）
 
 - **L1 完成**：单包接入（Farmer's Delight 3.3.6）从 jar 到机器人可用的清单与 ids，生产在用。
 - **L2 基本完成**："换一个 mod 只要几条命令 + 审一张表"。暮色森林 4.8.629 实测：
   2134 条配方全解析、17 个自定义序列化器自动发现，不需要 javap；农夫乐事端到端
   `onboard` 通过（发现 → `--accept` → 修订单）。缺口：线上同形的语义拆分
   （`i32`/`f32`、`string`/`varints`）仍需人按备选表拍板——协议本身丢了信息。
-- **L3 进行中**：规则推断工作站（`learn --infer`，不需要模型，可用 `--evidence` 吃实测
-  证据）、`verify --stations` 真做一份菜（侧车型 + 两步式都验）、侧车熟成任务可跨断线/
-  重启恢复、`probe --scan-blocks` 全量窗口扫描。剩下的是"单方块多配方类型"与安装评估。
+- **L3 基本完成**：规则推断工作站（`learn --infer`，可用 `--evidence` 吃实测证据）、
+  `verify --stations` 真做一份菜（侧车型 + 多原料两步式都验）、侧车熟成任务可跨断线/
+  重启恢复、`probe --scan-blocks` 全量窗口扫描、`onboard` 七步一条龙。
+  缺口：单方块多 recipeType（目前一对一）、`learn` 的 LLM 路径未在本轮复验。
 - **0.x 期间 manifest / sidesheet 格式可能发生破坏性变更**，会尽量在 README 里标注。
 
 ## 前置条件
@@ -215,12 +216,19 @@ modsmith learn <manifest> --infer --evidence probe.json
              → farmersdelight:pasta_with_meatballs
 ```
 
-两步式站点（放料 → 换工具 → 右键）也走真实交互，不是发命令：
+两步式站点（放料 → 换工具 → 右键）也走真实交互，不是发命令。**每一种原料各右键一次**，
+不是只放第一种——FD 有 12 条 cutting 配方要 2 种以上原料，只放一种会"缺料失败"，而机器人
+会以为是配方本身不对：
 
 ```
-✓ [station] cutting_board（两步）：minecraft:beef + farmersdelight:flint_knife
-             → farmersdelight:minced_beef
+✓ [station] cutting_board（两步，4 种料）：leather_helmet + leather_chestplate
+             + leather_leggings + leather_boots + shears → leather
 ```
+
+`onboard` 现在是 **7 步**：inspect → calibrate → probe（含方块扫描）→ recipes →
+learn（规则推断）→ verify（含站点实测）→ sidecar。`recipes` 排在 `learn`/`verify` 之前是
+硬约束：jar 形状的配方里 `tool` 是对象（读不出刀后缀）、`cooking_time` 为空，先跑会把
+两步式误判成侧车、站点执行也会超时。
 
 右键用原生 `block_place` 包发（`bot.activateBlock` 对没有注册交互行为的模组方块会一直
 不返回——实测卡过两分钟），带了 3 秒兜底。

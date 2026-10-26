@@ -13,9 +13,9 @@ const BIN = join(fileURLToPath(new URL('.', import.meta.url)), '..', 'bin', 'mod
 const FIXTURE = join(fileURLToPath(new URL('.', import.meta.url)), 'fixtures', 'tiny-mod.jar');
 const SRV = { rconPassword: 'pw', port: 25565, host: '127.0.0.1' };
 
-test('全六步排布：无产物、有服务器 → 全部待执行，参数分发正确', () => {
+test('七步排布：无产物、有服务器 → 全部待执行，参数分发正确', () => {
   const plan = onboardPlan({ jar: 'x.jar', pack: 'tiny-mod', server: SRV });
-  assert.deepEqual(plan.steps.map((s) => s.id), ['inspect', 'calibrate', 'probe', 'verify', 'recipes', 'sidecar']);
+  assert.deepEqual(plan.steps.map((s) => s.id), ['inspect', 'calibrate', 'probe', 'recipes', 'learn', 'verify', 'sidecar']);
   for (const s of plan.steps) {
     assert.equal(s.done, false, `${s.id} 不该标记 done`);
     assert.equal(s.blocked, false, `${s.id} 不该 blocked：${s.reason}`);
@@ -23,9 +23,9 @@ test('全六步排布：无产物、有服务器 → 全部待执行，参数分
   const calibrate = plan.steps[1];
   assert.ok(calibrate.argv.includes('--rcon-password'), '服务器参数要传给 calibrate');
   assert.equal(calibrate.argv[calibrate.argv.indexOf('--ids') + 1], './mods/tiny-mod-ids.json');
-  const recipes = plan.steps[4];
+  const recipes = plan.steps[3];
   assert.ok(recipes.argv.includes('--write'), 'recipes 默认写回');
-  const sidecar = plan.steps[5];
+  const sidecar = plan.steps[6];
   assert.ok(!sidecar.argv.includes('--no-build'), 'sidecar 默认编译');
 });
 
@@ -53,14 +53,14 @@ test('--resume + 产物就位 → 对应步骤标记 done', () => {
   });
   assert.equal(plan.steps[0].done, true);
   assert.equal(plan.steps[1].done, true);
-  assert.equal(plan.steps[4].done, true);
-  assert.equal(plan.steps[2].done, false, 'probe 是实测，没有产物概念');
+  assert.equal(plan.steps[3].done, true);
+  assert.equal(plan.steps[2].done, false, 'probe 没产物时不标 done');
 });
 
 test('--dry-recipes 与 --no-build 的传参', () => {
   const plan = onboardPlan({ jar: 'x.jar', pack: 'tiny-mod', server: SRV, dryRecipes: true, noBuild: true });
-  assert.ok(!plan.steps[4].argv.includes('--write'));
-  assert.ok(plan.steps[5].argv.includes('--no-build'));
+  assert.ok(!plan.steps[3].argv.includes('--write'));
+  assert.ok(plan.steps[6].argv.includes('--no-build'));
 });
 
 test('CLI --plan 冒烟：不执行、退出 0、打印步骤', () => {
@@ -83,4 +83,40 @@ test('onboard：recipes 步骤带上 --server-mods（discover 的配方名清单
   assert.ok(recipes.argv.includes('./mods'));
   const calibrate = plan.steps.find((s) => s.id === 'calibrate');
   assert.ok(calibrate.argv.includes('--resume'), `calibrate 要带 --resume：${calibrate.argv.join(' ')}`);
+});
+
+test('onboard：L3 步骤接进来了（probe 带 --scan-blocks、learn --infer、verify --stations）', async () => {
+  const { onboardPlan } = await import('../src/onboard.mjs');
+  const plan = onboardPlan({
+    jar: 'SomeMod.jar', pack: 'somemod', modsDir: './mods',
+    server: { rconPassword: 'x', serverMods: './mods', port: 25565 },
+    artifacts: {},
+  });
+  const ids = plan.steps.map((s) => s.id);
+  assert.deepEqual(ids, ['inspect', 'calibrate', 'probe', 'recipes', 'learn', 'verify', 'sidecar']);
+
+  const probe = plan.steps.find((s) => s.id === 'probe');
+  assert.ok(probe.argv.includes('--scan-blocks'), `probe 要扫方块：${probe.argv.join(' ')}`);
+  assert.ok(probe.argv.includes('--out'), 'probe 要把证据落盘');
+
+  const learn = plan.steps.find((s) => s.id === 'learn');
+  assert.ok(learn.argv.includes('--infer'), `learn 用规则推断：${learn.argv.join(' ')}`);
+  assert.ok(learn.argv.includes('--evidence'), 'learn 要吃 probe 的证据');
+  // 顺序硬约束：learn 的工具检测和 verify 的站点执行都依赖服务端真配方
+  assert.ok(ids.indexOf('recipes') < ids.indexOf('learn'), 'recipes 必须在 learn 之前');
+  assert.ok(ids.indexOf('learn') < ids.indexOf('verify'), 'learn 必须在 verify 之前');
+
+  const verify = plan.steps.find((s) => s.id === 'verify');
+  assert.ok(verify.argv.includes('--stations'), `verify 要真执行站点：${verify.argv.join(' ')}`);
+});
+
+test('onboard：evidence 路径从 probe 输出接到 learn 输入（同一个文件）', async () => {
+  const { onboardPlan } = await import('../src/onboard.mjs');
+  const plan = onboardPlan({ jar: 'X.jar', pack: 'mypack', modsDir: './mods', server: { rconPassword: 'x' } });
+  const probe = plan.steps.find((s) => s.id === 'probe');
+  const learn = plan.steps.find((s) => s.id === 'learn');
+  const probeOut = probe.argv[probe.argv.indexOf('--out') + 1];
+  const learnEv = learn.argv[learn.argv.indexOf('--evidence') + 1];
+  assert.equal(probeOut, learnEv, 'probe 写的文件必须就是 learn 读的文件');
+  assert.match(probeOut, /mypack-probe\.json$/);
 });
