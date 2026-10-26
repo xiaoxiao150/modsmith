@@ -70,3 +70,17 @@ test('CLI --plan 冒烟：不执行、退出 0、打印步骤', () => {
   assert.match(r.stdout, /sidecar/);
   assert.match(r.stdout, /tiny-mod\.json/);
 });
+
+test('onboard：recipes 步骤带上 --server-mods（discover 的配方名清单来源），resume 传给 calibrate', async () => {
+  const { onboardPlan } = await import('../src/onboard.mjs');
+  const plan = onboardPlan({
+    jar: 'SomeMod.jar', pack: 'somemod-1.21.1-1.0.0', modsDir: './mods', resume: true,
+    server: { rconPassword: 'x', serverMods: './mods', host: '127.0.0.1', port: 25565 },
+    artifacts: {},
+  });
+  const recipes = plan.steps.find((s) => s.id === 'recipes');
+  assert.ok(recipes.argv.includes('--server-mods'), `recipes 要带 --server-mods：${recipes.argv.join(' ')}`);
+  assert.ok(recipes.argv.includes('./mods'));
+  const calibrate = plan.steps.find((s) => s.id === 'calibrate');
+  assert.ok(calibrate.argv.includes('--resume'), `calibrate 要带 --resume：${calibrate.argv.join(' ')}`);
+});

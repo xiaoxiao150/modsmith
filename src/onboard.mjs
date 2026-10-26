@@ -67,10 +67,14 @@ export function onboardPlan(opts) {
     idsPath,
     steps: [
       step('inspect', '静态提取清单', ['inspect', jar, '--out', modsDir, '--pack', pack], Boolean(artifacts.manifest), false),
-      step('calibrate', '现场量数字 id', ['calibrate', manifestPath, '--ids', idsPath, ...serverArgs], Boolean(artifacts.ids), true),
+      step('calibrate', '现场量数字 id', ['calibrate', manifestPath, '--ids', idsPath, ...(resume ? ['--resume'] : []), ...serverArgs], Boolean(artifacts.ids), true),
       step('probe', '实测容器/站点', ['probe', manifestPath, '--pack', pack, '--mods-dir', modsDir, ...serverArgs], false, true),
       step('verify', '合成冒烟', ['verify', manifestPath, '--pack', pack, '--ids', idsPath, '--mods-dir', modsDir, ...serverArgs], false, true),
-      step('recipes', '服务端真配方翻进清单', ['recipes', manifestPath, '--ids', idsPath, ...(dryRecipes ? [] : ['--write'])], Boolean(artifacts.serverRecipes), false),
+      // --server-mods 要给 recipes：discover 从服务器所有 jar + 原版 jar 扫配方名，
+      // 名字清单越全，切段越准（缺了它，新 mod 的发现会卡在名字缺口上）。
+      step('recipes', '服务端真配方翻进清单', ['recipes', manifestPath, '--ids', idsPath,
+        ...(srv.serverMods ? ['--server-mods', String(srv.serverMods)] : []),
+        ...(dryRecipes ? [] : ['--write'])], Boolean(artifacts.serverRecipes), false),
       step('sidecar', '站点侧车（配置 + 编译）', ['sidecar', manifestPath, '--out', './sidecars', ...(noBuild ? ['--no-build'] : [])], false, false),
     ],
   };
