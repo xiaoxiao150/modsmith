@@ -261,6 +261,15 @@ export function inspectJar(jarPath, opts = {}) {
       rec.cooking_time = raw.cookingtime ?? raw.cooking_time ?? null;
       rec.container = raw.container ?? null;
       rec.experience = raw.experience ?? null;
+    } else {
+      // 未知自定义类型（avaritia:compressor、fromage:cheese_slicing…）：**保留常见字段**。
+      // 不猜语义、不补默认值，但 ingredients/result/耗时 是站点验收和规划要用的数据——
+      // 以前只留 result，verify 会报"配方缺 ingredients"（Avaritia 实测）。
+      if (raw.ingredients !== undefined) rec.ingredients = raw.ingredients;
+      if (raw.tool !== undefined) rec.tool = raw.tool;
+      if (raw.container !== undefined) rec.container = raw.container;
+      const t = raw.cost ?? raw.cookingtime ?? raw.cooking_time ?? raw.time ?? null;
+      if (t !== null) rec.cooking_time = t;
     }
     if (raw.result !== undefined && rec.result === undefined) rec.result = raw.result;
     recipes.push(rec);

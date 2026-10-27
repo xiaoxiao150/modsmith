@@ -114,11 +114,27 @@ public final class GenericSidecarMod implements ModInitializer {
         MinecraftServer server = source.getServer();
         ServerWorld world = (ServerWorld) player.getWorld();
 
-        Identifier id = parseRecipeId(rawId, station.recipeType);
-        if (id == null) {
-            return fail(source, "bad recipe id: " + rawId);
+        // 先按原样找：manifest 里的配方 id 就是 RecipeManager 的键（`mod:path` 或
+        // `mod:type/path` 两种都有）。parseRecipeId 只是"短名"的便利，不能让它把
+        // 一个真实存在的完整 id 再拼一层（Avaritia 的 `avaritia:amethyst_singularity`
+        // 没有 '/'，被拼成了 `avaritia:compressor/amethyst_singularity`——实测）。
+        Identifier id = null;
+        RecipeEntry<?> entry = null;
+        String rawTrim = rawId.trim();
+        if (rawTrim.contains(":")) {
+            Identifier direct = Identifier.tryParse(rawTrim);
+            if (direct != null) {
+                entry = findRecipe(server, direct);
+                if (entry != null) id = direct;
+            }
         }
-        RecipeEntry<?> entry = findRecipe(server, id);
+        if (entry == null) {
+            id = parseRecipeId(rawId, station.recipeType);
+            if (id == null) {
+                return fail(source, "bad recipe id: " + rawId);
+            }
+            entry = findRecipe(server, id);
+        }
         if (entry == null) {
             return fail(source, "no such recipe: " + id);
         }
