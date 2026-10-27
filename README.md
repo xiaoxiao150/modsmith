@@ -1,6 +1,10 @@
 # modsmith
 
 > 让每个 mineflayer AI 完全学会玩一个 mod / Let every mineflayer AI fully learn to play a mod.
+>
+> 它是 **AI 陪伴项目**的语义层：宿主（Cortico）是一个真玩家账号上的 AI，
+> modsmith 负责把她面前的任意模组变成可读的配方/站点/id 数据。
+> 方向与阶段见 [ROADMAP.md](ROADMAP.md)。
 
 把 Fabric 模组 jar 变成**任何 mineflayer 机器人能用的语义清单**。
 
@@ -17,7 +21,7 @@ from a live server you own (OP + RCON required) and keeps the mapping
 fingerprinted. Docs are Chinese-first; this README and `AGENTS.md` carry the
 full design notes.
 
-## 状态（0.5.0 预览）
+## 状态（0.6.1，方向已转向 AI 陪伴）
 
 - **L1 完成**：单包接入（Farmer's Delight 3.3.6）从 jar 到机器人可用的清单与 ids，生产在用。
 - **L2 基本完成**："换一个 mod 只要几条命令 + 审一张表"。暮色森林 4.8.629 实测：
