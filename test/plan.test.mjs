@@ -65,7 +65,7 @@ test('牛肉炖：先切牛肉、再下锅，材料齐时不报缺口', () => {
 test('没有刀：缺口指到工具，不排步骤', () => {
   const r = planTarget(graph, {
     item: 'farm:beef_stew', count: 1, stations,
-    have: { 'minecraft:beef': 2, 'minecraft:carrot': 1 },
+    have: { 'minecraft:beef': 2, 'minecraft:carrot': 1, 'minecraft:bowl': 1 },
   });
   assert.equal(r.ok, false);
   assert.ok(r.missing.some((m) => m.item === 'farm:iron_knife' && /工具/.test(m.reason)), JSON.stringify(r.missing));
@@ -136,8 +136,25 @@ test('成品本身就在箱子里：只排一步 take', () => {
 test('箱子里也不够：缺口照实说（不是整单失败）', () => {
   const r = planTarget(graph, {
     item: 'farm:beef_stew', count: 1, stations,
-    have: { 'minecraft:beef': 2, 'farm:iron_knife': 1 }, stock: {},
+    have: { 'minecraft:beef': 2, 'farm:iron_knife': 1, 'minecraft:bowl': 1 }, stock: {},
   });
   assert.equal(r.ok, false);
   assert.ok(r.missing.some((m) => /carrot/.test(m.item + m.reason)), JSON.stringify(r.missing));
+});
+
+test('容器（碗）也算料：缺了先从箱子取，取不到如实报缺', () => {
+  const withStock = planTarget(graph, {
+    item: 'farm:beef_stew', count: 2, stations,
+    have: { 'minecraft:beef': 4, 'farm:iron_knife': 1, 'minecraft:carrot': 2 },
+    stock: { 'minecraft:bowl': 2 },
+  });
+  assert.equal(withStock.ok, true, JSON.stringify(withStock.missing));
+  assert.ok(withStock.steps.some((s) => s.skill === 'take' && s.item === 'bowl'), JSON.stringify(withStock.steps));
+
+  const without = planTarget(graph, {
+    item: 'farm:beef_stew', count: 2, stations,
+    have: { 'minecraft:beef': 4, 'farm:iron_knife': 1, 'minecraft:carrot': 2 },
+  });
+  assert.equal(without.ok, false);
+  assert.ok(without.missing.some((m) => /bowl/.test(m.item)), JSON.stringify(without.missing));
 });

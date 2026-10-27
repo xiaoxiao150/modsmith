@@ -214,9 +214,10 @@ export function planTarget(graph, opts) {
     return true;
   };
 
+  const dbg = process.env.PLAN_DEBUG ? (...a) => console.error('[plan]', ...a) : () => {};
   /** 这条配方能不能执行：站点在、工具在、原料组都有可选来源。 */
   const viable = (entry, depth) => {
-    if (!stepsFor(entry, 1)) return false;
+    if (!stepsFor(entry, 1)) { dbg(entry.id, 'no steps'); return false; }
     if (entry.kind === 'sidecar-recipe' && !stationTypes.has(entry.type)) return false;
     if (entry.kind === 'two-step-use' && !stationTypes.has(entry.type)) return false;
     if (entry.kind === 'place-and-wait' && !stationTypes.has(entry.type) && !PASSIVE_TYPES.has(bare(entry.type))) return false;
@@ -227,6 +228,12 @@ export function planTarget(graph, opts) {
     for (const group of entry.groups) {
       if (group.some((name) => haveCount(name) > 0 || stockCount(name) > 0
         || (depth < MAX_DEPTH && canMake(graph, name)))) continue;
+      dbg(entry.id, 'no group', group);
+      return false;
+    }
+    const container = refName(entry.recipe.container);
+    if (container && haveCount(container) <= 0 && stockCount(container) <= 0) {
+      dbg(entry.id, 'no container', container);
       return false;
     }
     return true;
@@ -270,9 +277,12 @@ export function planTarget(graph, opts) {
       } else if (e.tool.length > 0 && !e.tool.some((t) => haveCount(t) > 0 || stockCount(t) > 0 || canMake(graph, t))) {
         missing.push({ item: bare(e.tool[0]), reason: `做「${key}」要工具（${e.tool.map(bare).join(' / ')}），背包里没有也做不出` });
       } else {
-        // 逐组找第一个真凑不齐的原料，别只回一句"没材料"
+        // 逐项找第一个真凑不齐的，别只回一句"没材料"
+        const container = refName(e.recipe.container);
         const badGroup = e.groups.find((g) => !g.some((n) => haveCount(n) > 0 || stockCount(n) > 0 || canMake(graph, n)));
-        if (badGroup) {
+        if (container && haveCount(container) <= 0 && stockCount(container) <= 0) {
+          missing.push({ item: bare(container), reason: `做「${key}」要容器 ${bare(container)}，背包和箱子里都没有` });
+        } else if (badGroup) {
           missing.push({ item: bare(badGroup[0] ?? '?'), reason: `做「${key}」缺原料（候选：${badGroup.map(bare).join(' / ')}）` });
         } else {
           missing.push({ item: key, reason: '有配方但没有可用站点/工具/材料' });
@@ -322,10 +332,18 @@ export function planTarget(graph, opts) {
       return false;
     }
 
-    // 容器（锅要碗）：不消耗判断太细，缺了只提示
+    // 容器（锅要碗）：每批要一个，扣在背包里算。真实侧车（fdchef）确实要碗，
+    // 以前只打一句提示，做第二碗时才发现没有——现在缺了就从箱子取，取不到就报缺。
     const container = refName(entry.recipe.container);
-    if (container && haveCount(container) <= 0) {
-      notes.push(`「${key}」需要容器 ${bare(container)}（侧车实现可能要它）`);
+    if (container) {
+      if (haveCount(container) < batches && stockCount(container) > 0) {
+        takeFromStock(container, batches - haveCount(container));
+      }
+      if (haveCount(container) < batches) {
+        missing.push({ item: bare(container), reason: `做 ${batches} 份「${key}」要 ${batches} 个容器 ${bare(container)}，只有 ${haveCount(container)} 个` });
+        return false;
+      }
+      take(container, batches);
     }
 
     const planned = stepsFor(entry, batches);
