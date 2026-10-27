@@ -98,3 +98,4 @@ test('配方循环不会死循环，缺口写明白', () => {
   assert.equal(r.ok, false);
   assert.ok(r.missing.some((m) => /循环/.test(m.reason)), JSON.stringify(r.missing));
 });
+

@@ -18,6 +18,8 @@ import { craftRecipeViews } from './recipes-view.mjs';
 const MAX_DEPTH = 6;
 const MAX_STEPS = 96;
 
+/** 合成（工作台）类：不是方块交互。 */
+const CRAFT_TYPES = new Set(['crafting_shaped', 'crafting_shapeless']);
 /** 原版炉子类：走宿主的 smelt（需要燃料）。 */
 const SMELT_TYPES = new Set(['smelting', 'blasting', 'smoking']);
 /** 被动站点：走宿主的 cook。 */
@@ -57,6 +59,7 @@ function ingredientGroups(recipe) {
   return out;
 }
 
+/** 工具名：显式 tool 字段之外，盲搜/自动命名后的配方只能靠名字后缀认工具。 */
 /** 工具候选：显式 tool 字段；没有就返回空。 */
 function toolCandidates(recipe) {
   const t = recipe?.tool;
@@ -135,29 +138,29 @@ export function canMake(graph, item) {
 }
 
 /**
- * 一条配方的步骤形态。返回 null = 这个类型没有对应的宿主技能。
- * @returns {{skill:string, [k:string]: unknown}|null}
+ * 一条配方的步骤形态（可能多步）。返回 null = 这个类型没有对应的宿主技能。
+ * @returns {Array<{skill:string, [k:string]: unknown}>|null}
  */
-export function stepFor(entry, count) {
+export function stepsFor(entry, count) {
   const t = bare(entry.type);
   if (entry.kind === 'two-step-use') {
     // 两步式：每个原料组各放一次（宿主 cut 的 items 就是这个语义）
     const items = entry.groups.map((g) => g[0]).filter(Boolean);
-    return items.length > 0 ? { skill: 'cut', items, count } : null;
+    return items.length > 0 ? [{ skill: 'cut', items, count }] : null;
   }
   if (entry.kind === 'sidecar-recipe') {
-    return { skill: 'pot', recipe: entry.id, count };
+    return [{ skill: 'pot', recipe: entry.id, count }];
   }
   if (entry.kind === 'place-and-wait' || PASSIVE_TYPES.has(t)) {
     const input = entry.groups[0]?.[0];
-    return input ? { skill: 'cook', item: input, count } : null;
+    return input ? [{ skill: 'cook', item: input, count }] : null;
   }
   if (SMELT_TYPES.has(t)) {
     const input = entry.groups[0]?.[0];
-    return input ? { skill: 'smelt', input, count } : null;
+    return input ? [{ skill: 'smelt', input, count }] : null;
   }
   if (t === 'crafting_shaped' || t === 'crafting_shapeless') {
-    return { skill: 'craft', item: entry.out, count };
+    return [{ skill: 'craft', item: entry.out, count }];
   }
   return null;
 }
@@ -198,7 +201,7 @@ export function planTarget(graph, opts) {
 
   /** 这条配方能不能执行：站点在、工具在、原料组都有可选来源。 */
   const viable = (entry, depth) => {
-    if (!stepFor(entry, 1)) return false;
+    if (!stepsFor(entry, 1)) return false;
     if (entry.kind === 'sidecar-recipe' && !stationTypes.has(entry.type)) return false;
     if (entry.kind === 'two-step-use' && !stationTypes.has(entry.type)) return false;
     if (entry.kind === 'place-and-wait' && !stationTypes.has(entry.type) && !PASSIVE_TYPES.has(bare(entry.type))) return false;
@@ -287,18 +290,20 @@ export function planTarget(graph, opts) {
       notes.push(`「${key}」需要容器 ${bare(container)}（侧车实现可能要它）`);
     }
 
-    const step = stepFor(entry, batches);
-    if (step.skill === 'smelt' && !step.fuel) {
-      // 宿主的 smelt 必须要燃料（它不会自己挑）；从背包里找煤/木炭，没有就如实报缺
-      const fuel = [...have.entries()].find(([k, v]) => v > 0 && /(^|_)(coal|charcoal)$/.test(k));
-      if (!fuel) {
-        missing.push({ item: 'minecraft:coal', reason: `要炼「${key}」但背包里没有燃料（煤/木炭）` });
-        return false;
+    const planned = stepsFor(entry, batches);
+    for (const step of planned) {
+      if (step.skill === 'smelt' && !step.fuel) {
+        // 宿主的 smelt 必须要燃料（它不会自己挑）；从背包里找煤/木炭，没有就如实报缺
+        const fuel = [...have.entries()].find(([k, v]) => v > 0 && /(^|_)(coal|charcoal)$/.test(k));
+        if (!fuel) {
+          missing.push({ item: 'minecraft:coal', reason: `要炼「${key}」但背包里没有燃料（煤/木炭）` });
+          return false;
+        }
+        step.fuel = fuel[0];
+        have.set(fuel[0], fuel[1] - 1);
       }
-      step.fuel = fuel[0];
-      have.set(fuel[0], fuel[1] - 1);
+      steps.push(step);
     }
-    steps.push(step);
     // 产出 batches 批，用掉这次的缺口，余数留在背包里给别的分支用
     have.set(key, haveCount(key) + entry.outCount * batches - deficit);
     return true;

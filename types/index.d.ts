@@ -60,13 +60,15 @@ export function craftRecipeViews(manifest: object): CraftRecipeView[];
 
 /** 配方依赖图 + 目标规划（宿主 make 技能的输入）。 */
 export interface PlannedStep {
-  skill: 'craft' | 'cut' | 'pot' | 'cook' | 'smelt';
+  skill: 'craft' | 'cut' | 'pot' | 'cook' | 'smelt' | 'place' | 'use' | 'pickup';
   item?: string;
   items?: string[];
   recipe?: string;
   input?: string;
   fuel?: string;
-  count: number;
+  block?: string;
+  times?: number;
+  count?: number;
 }
 export interface PlanResult {
   ok: boolean;
