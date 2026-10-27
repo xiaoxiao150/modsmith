@@ -127,8 +127,9 @@ export function stationConfigOf(manifest, stations, opLevel) {
 
 /**
  * 命令写回决策（纯函数）：
- *   - 已有 command 且与本次生成的不同 → 默认保留（多半是人工侧车在跑；覆盖会指向不存在的命令）
+ *   - 已有 command、与本次生成的不同、且不是机器推断的 → 默认保留（多半是人工侧车在跑）
  *   - --write-command 显式要求 → 一律写
+ *   - 机器推断的站点（inferred: true）→ 一律可写（它的命令是占位符，没有验过）
  *   - 其余 → 写
  * @returns {{writable: Array, kept: Array<{id: string, existing: string}>}}
  */
@@ -137,7 +138,11 @@ export function planCommandWrites(pending, explicitWrite) {
   const kept = [];
   for (const x of pending) {
     const existing = x.station.command;
-    if (!explicitWrite && typeof existing === 'string' && existing && existing !== x.command) {
+    // 只有**人核对过的**命令才值得保留。机器推断的（learn/infer）命令是占位符，
+    // 侧车编译成功后必须让位给真正注册的命令——否则模型编的
+    // `/brewinandchewin ferment {recipe}` 会挡住 `/keg cook {recipe}`，机器人一直超时。
+    const curated = x.station.inferred !== true;
+    if (!explicitWrite && curated && typeof existing === 'string' && existing && existing !== x.command) {
       kept.push({ id: x.station.id, existing });
     } else {
       writable.push(x);

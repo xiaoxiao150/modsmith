@@ -341,7 +341,17 @@ jar 里没有"这个方块是作物、成熟时 age 是 3"。所以走三档：
 MODSMITH_BASE_URL   默认 http://127.0.0.1:8080/v1
 MODSMITH_API_KEY    没设就不发 Authorization（本机服务通常不要）
 MODSMITH_MODEL      默认读 /v1/models 的第一条
+MODSMITH_MAX_TOKENS 回复上限，默认 8000
+MODSMITH_REASONING_EFFORT  可选 low/high/max（端点不认就忽略）
 ```
+
+**推理模型要把预算留够**：DeepSeek `deepseek-flash` 实测在 `max_tokens=2000` 时把额度
+全花在思考上，正文是空的（错误信息会直接这么说）。默认 8000 够用；想省时间可以设
+`MODSMITH_REASONING_EFFORT=low`。
+
+模型产出的站点一律标 `inferred: true` / `needsReview: true`：它不是人核对过的。
+已有非推断站点（人核对过命令）时，模型对**同一方块**的建议不会被采纳，只能补新方块；
+确实要覆盖得加 `--force`。侧车编译成功后可以覆盖推断站点的命令——但人工命令永远保留。
 
 ## 跟宿主项目对接
 

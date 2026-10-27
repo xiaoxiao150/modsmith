@@ -148,7 +148,11 @@ export function validateLearned(raw, manifest) {
     if (seen.has(id)) { errors.push(`站点 id 重复：${id}`); continue; }
     seen.add(id);
 
-    const spec = { id, kind, block };
+    // LLM 产出的站点一律标成"机器推断、待审"：它不是人核对过的。
+    // 下游据此把它当作可被覆盖/可被 sidecar 修正的对象（真实事故：模型编的
+    // `/brewinandchewin ferment {recipe}` 会被 planCommandWrites 当成人工命令保留下来，
+    // 侧车编译成功后也改不掉，机器人对着不存在的命令一直超时）。
+    const spec = { id, kind, block, inferred: true, needsReview: true };
     if (kind === 'two-step-use' && st.toolSuffix) spec.toolSuffix = String(st.toolSuffix);
     if (kind === 'place-and-wait') {
       if (Number.isFinite(Number(st.waitMs))) spec.waitMs = Number(st.waitMs);
@@ -191,7 +195,7 @@ export function applyLearned(manifest, learned) {
  * @param {object} args CLI 参数
  * @param {object} deps { ask(prompt): Promise<string>, probe(stations, manifest): Promise<object[]> }
  */
-export async function learn(manifestPath, { ask, probe, rounds = 3, wikiText = '' }, io) {
+export async function learn(manifestPath, { ask, probe, rounds = 3, wikiText = '', force = false }, io) {
   const manifest = readManifest(manifestPath);
   if (!manifest) io.fatal(`读不了 manifest：${manifestPath}`);
 
@@ -226,6 +230,21 @@ export async function learn(manifestPath, { ask, probe, rounds = 3, wikiText = '
       if (results.length > 0) {
         console.error(`  第 ${round} 轮：${results.length} 个站点声明经实测确认`);
       }
+    }
+
+    // **模型不能改人工站点**：已有非推断站点（人核对过命令）时，模型对同一方块的
+    // 建议一律不采纳；它只能补新方块。真实事故：FD 的 `/fdchef cook {recipe}` 会被
+    // 模型换成猜的命令，机器人对着不存在的命令一直重试。--force 才允许覆盖。
+    const curated = (manifest.stations ?? []).filter((st) => st && st.inferred !== true);
+    if (curated.length > 0 && force !== true) {
+      const curatedBlocks = new Set(curated.map((st) => st.block));
+      const fresh = cleaned.stations.filter((st) => !curatedBlocks.has(st.block));
+      const blocked = cleaned.stations.length - fresh.length;
+      if (blocked > 0) {
+        console.error(`  保留 ${blocked} 条人工站点：模型对 ${cleaned.stations
+          .filter((st) => curatedBlocks.has(st.block)).map((st) => st.block).join(', ')} 的建议不采纳（--force 才覆盖）`);
+      }
+      cleaned.stations = [...curated, ...fresh];
     }
 
     applyLearned(manifest, cleaned);

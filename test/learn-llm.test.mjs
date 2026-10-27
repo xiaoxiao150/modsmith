@@ -51,6 +51,8 @@ test('第一轮结构不合格 → 把错误回喂，第二轮合格才写盘', 
   assert.match(prompts[1], /上一轮的问题/, '第二轮 prompt 要带上上一轮的错误');
   const after = JSON.parse(readFileSync(file, 'utf8'));
   assert.equal(after.stations[0].block, 'm:cooking_pot');
+  assert.equal(after.stations[0].inferred, true, 'LLM 产出的站点是机器推断，不是人工核对过的');
+  assert.equal(after.stations[0].needsReview, true);
 }));
 
 test('实测不符 → 原因回给模型，模型改成实测支持的机制', () => withManifest(async ({ file, io }) => {
@@ -112,3 +114,29 @@ test('learn --infer：没有方块的纯物品包是「不需要工作站」，�
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('模型不许改人工站点：同一方块的建议不采纳，新方块照收（FD 的 /fdchef 命令）', () => withManifest(async ({ file, io }) => {
+  const fs = await import('node:fs');
+  const m = JSON.parse(fs.readFileSync(file, 'utf8'));
+  m.stations = [{ id: 'cooking_pot', kind: 'sidecar-recipe', block: 'm:cooking_pot',
+    command: '/fdchef cook {recipe}', recipeType: 'm:cooking', verified: true }];
+  fs.writeFileSync(file, JSON.stringify(m));
+
+  const ask = async () => JSON.stringify({
+    stations: [
+      // 模型对同一个锅给出另一条命令（不存在的命令）
+      goodStation('sidecar-recipe', 'm:cooking_pot', { recipeType: 'm:cooking', command: '/m cook {recipe}' }),
+      // 模型对另一个方块给出新站点（该收）
+      goodStation('two-step-use', 'm:cutting_board', { recipeType: 'm:cutting', toolSuffix: '_knife' }),
+    ],
+    prompt: '', unsupported: [],
+  });
+  const r = await learn(file, { ask, rounds: 1 }, io);
+  assert.equal(r.ok, true);
+  const after = JSON.parse(fs.readFileSync(file, 'utf8'));
+  const pot = after.stations.find((s) => s.block === 'm:cooking_pot');
+  assert.equal(pot.command, '/fdchef cook {recipe}', '人工命令一个字都不能变');
+  assert.equal(pot.verified, true);
+  const board = after.stations.find((s) => s.block === 'm:cutting_board');
+  assert.equal(board?.inferred, true, '模型给的新方块照收，但标成待审');
+}));

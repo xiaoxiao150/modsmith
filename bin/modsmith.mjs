@@ -125,6 +125,7 @@ const USAGE = `modsmith ${VERSION} — 把 Fabric mod jar 变成机器人能用�
                              默认是合并：人工站点原样保留（只补 recipeType/toolSuffix），
                              只追加没被占用的方块
       模型走环境变量：MODSMITH_BASE_URL / MODSMITH_API_KEY / MODSMITH_MODEL
+      MODSMITH_MAX_TOKENS / MODSMITH_REASONING_EFFORT（推理模型别把预算烧在思考上）
 
   modsmith sidecar <manifest.json> [选项]
       产出 sidecar-recipe 型站点的服务端侧车：一份站点配置 JSON（通用模组运行时读它）

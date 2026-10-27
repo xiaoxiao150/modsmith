@@ -96,14 +96,17 @@ test('planCommandWrites：已有 command 默认保留（人工侧车优先），
     { station: { id: 'pan' }, command: '/pan cook {recipe}', recipeType: 'x:cooking' },
     // 命令与生成结果一致：无需保留
     { station: { id: 'mill', command: '/mill cook {recipe}' }, command: '/mill cook {recipe}', recipeType: 'x:cooking' },
+    // 机器推断出来的命令是占位符（learn 的模型编的），必须能被侧车覆盖
+    { station: { id: 'keg', command: '/brewinandchewin ferment {recipe}', inferred: true }, command: '/keg cook {recipe}', recipeType: 'x:fermenting' },
   ];
   const plain = planCommandWrites(pending, false);
   assert.deepEqual(plain.kept, [{ id: 'pot', existing: '/pot cook {recipe}' }]);
-  assert.deepEqual(plain.writable.map((x) => x.station.id), ['pan', 'mill']);
+  assert.deepEqual(plain.writable.map((x) => x.station.id), ['pan', 'mill', 'keg'],
+    '推断站点的命令是占位符，不该像人工命令那样被保留');
 
   const forced = planCommandWrites(pending, true);
   assert.deepEqual(forced.kept, []);
-  assert.deepEqual(forced.writable.map((x) => x.station.id), ['pot', 'pan', 'mill']);
+  assert.deepEqual(forced.writable.map((x) => x.station.id), ['pot', 'pan', 'mill', 'keg']);
 });
 
 test('sidecar --no-build + --write-command 才写，并警告没验过', () => {
