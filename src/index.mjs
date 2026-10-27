@@ -16,6 +16,7 @@ import { checkServerMods, fingerprintDir } from './server-fingerprint.mjs';
 import { craftRecipeViews } from './recipes-view.mjs';
 import { vanillaItemTable } from './recipes-join.mjs';
 import { discoverSerializers, sidesheetFromDiscovery } from './recipes-discover.mjs';
+import { buildRecipeGraph, planTarget, outputOf, outputCountOf, canMake } from './plan.mjs';
 
 export { inspectJar, readSidecar, writeSidecar, sidecarTemplateFrom, writeManifest };
 
@@ -26,6 +27,7 @@ export {
   validateManifest, hasErrors, describeIssues, parseManifest, statsOf,
   checkServerMods, fingerprintDir, craftRecipeViews, vanillaItemTable,
   discoverSerializers, sidesheetFromDiscovery,
+  buildRecipeGraph, planTarget, outputOf, outputCountOf, canMake,
 };
 
 export const VERSION = '0.5.1';

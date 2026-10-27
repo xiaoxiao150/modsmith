@@ -58,6 +58,40 @@ export interface CraftRecipeView {
 }
 export function craftRecipeViews(manifest: object): CraftRecipeView[];
 
+/** 配方依赖图 + 目标规划（宿主 make 技能的输入）。 */
+export interface PlannedStep {
+  skill: 'craft' | 'cut' | 'pot' | 'cook' | 'smelt';
+  item?: string;
+  items?: string[];
+  recipe?: string;
+  input?: string;
+  fuel?: string;
+  count: number;
+}
+export interface PlanResult {
+  ok: boolean;
+  steps: PlannedStep[];
+  missing: Array<{ item: string; reason: string }>;
+  notes: string[];
+}
+export function buildRecipeGraph(
+  manifest: object,
+  opts?: { stations?: Array<{ id: string; kind: string; recipeType?: string; recipeTypes?: string[] }> },
+): { byResult: Map<string, unknown[]>; views: CraftRecipeView[] };
+export function canMake(graph: { byResult: Map<string, unknown[]> }, item: string): boolean;
+export function outputOf(recipe: object): string | null;
+export function outputCountOf(recipe: object): number;
+export function planTarget(
+  graph: { byResult: Map<string, unknown[]> },
+  opts: {
+    item: string;
+    count?: number;
+    have?: Record<string, number>;
+    stations?: Array<{ id: string; kind: string; recipeType?: string; recipeTypes?: string[] }>;
+    maxSteps?: number;
+  },
+): PlanResult;
+
 /** vanilla 物品数字 id → 全名（minecraft-data 表）。 */
 export function vanillaItemTable(mcVersion?: string): Record<string, string>;
 
