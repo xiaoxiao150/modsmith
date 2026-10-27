@@ -178,6 +178,10 @@ export function planTarget(graph, opts) {
   const want = Math.max(1, Math.floor(Number(opts.count ?? 1)) || 1);
   const have = new Map();
   for (const [k, v] of Object.entries(opts.have ?? {})) have.set(bare(k), Number(v) || 0);
+  // stock：不在背包、但在**够得着的箱子**里的东西。缺料时先排 take，再按背包记账——
+  // 这样"基地里有料"也能做，而不是只有"手里有"才行。
+  const stock = new Map();
+  for (const [k, v] of Object.entries(opts.stock ?? {})) stock.set(bare(k), Number(v) || 0);
   const stations = opts.stations ?? [];
   const stationTypes = new Set();
   for (const st of stations) {
@@ -191,6 +195,17 @@ export function planTarget(graph, opts) {
   const notes = [];
 
   const haveCount = (name) => have.get(bare(name)) ?? 0;
+  const stockCount = (name) => stock.get(bare(name)) ?? 0;
+  /** 从箱子里取：排一步 take，并把取到的记进背包。 */
+  const takeFromStock = (name, n) => {
+    const key = bare(name);
+    const got = Math.min(n, stockCount(key));
+    if (got <= 0) return 0;
+    stock.set(key, stockCount(key) - got);
+    have.set(key, haveCount(key) + got);
+    steps.push({ skill: 'take', item: key, count: got });
+    return got;
+  };
   const take = (name, n) => {
     const key = bare(name);
     const cur = have.get(key) ?? 0;
@@ -207,9 +222,11 @@ export function planTarget(graph, opts) {
     if (entry.kind === 'place-and-wait' && !stationTypes.has(entry.type) && !PASSIVE_TYPES.has(bare(entry.type))) return false;
     // 工具是"一组候选里有一把就行"（刀有好几种），不是每把都要
     if (entry.tool.length > 0
-      && !entry.tool.some((t) => haveCount(t) > 0 || (depth < MAX_DEPTH && canMake(graph, t)))) return false;
+      && !entry.tool.some((t) => haveCount(t) > 0 || stockCount(t) > 0
+        || (depth < MAX_DEPTH && canMake(graph, t)))) return false;
     for (const group of entry.groups) {
-      if (group.some((name) => haveCount(name) > 0 || (depth < MAX_DEPTH && canMake(graph, name)))) continue;
+      if (group.some((name) => haveCount(name) > 0 || stockCount(name) > 0
+        || (depth < MAX_DEPTH && canMake(graph, name)))) continue;
       return false;
     }
     return true;
@@ -226,8 +243,14 @@ export function planTarget(graph, opts) {
    */
   const ensure = (name, need, depth, path) => {
     const key = bare(name);
-    const deficit = need - haveCount(key);
+    let deficit = need - haveCount(key);
     if (deficit <= 0) return true;
+    // 背包不够：先看看够得着的箱子里有没有（有就排 take，够了就不用做）
+    if (stockCount(key) > 0) {
+      takeFromStock(key, deficit);
+      deficit = need - haveCount(key);
+      if (deficit <= 0) return true;
+    }
     if (depth >= MAX_DEPTH) { missing.push({ item: key, reason: `嵌套超过 ${MAX_DEPTH} 层` }); return false; }
     if (path.has(key)) { missing.push({ item: key, reason: '配方循环（自己需要自己）' }); return false; }
     if (steps.length > maxSteps) { missing.push({ item: key, reason: `步骤超过 ${maxSteps} 条` }); return false; }
@@ -244,10 +267,16 @@ export function planTarget(graph, opts) {
       const e = candidates[0];
       if (e.kind && !stationTypes.has(e.type)) {
         missing.push({ item: key, reason: `做「${key}」需要 ${e.type} 的站点（清单里没有可用站点）` });
-      } else if (e.tool.length > 0 && !e.tool.some((t) => haveCount(t) > 0 || canMake(graph, t))) {
+      } else if (e.tool.length > 0 && !e.tool.some((t) => haveCount(t) > 0 || stockCount(t) > 0 || canMake(graph, t))) {
         missing.push({ item: bare(e.tool[0]), reason: `做「${key}」要工具（${e.tool.map(bare).join(' / ')}），背包里没有也做不出` });
       } else {
-        missing.push({ item: key, reason: '有配方但没有可用站点/工具/材料' });
+        // 逐组找第一个真凑不齐的原料，别只回一句"没材料"
+        const badGroup = e.groups.find((g) => !g.some((n) => haveCount(n) > 0 || stockCount(n) > 0 || canMake(graph, n)));
+        if (badGroup) {
+          missing.push({ item: bare(badGroup[0] ?? '?'), reason: `做「${key}」缺原料（候选：${badGroup.map(bare).join(' / ')}）` });
+        } else {
+          missing.push({ item: key, reason: '有配方但没有可用站点/工具/材料' });
+        }
       }
       return false;
     }
@@ -256,12 +285,18 @@ export function planTarget(graph, opts) {
 
     // 工具：不消耗，但必须在背包里（拿在手上的那种）；候选里有一把就够
     if (entry.tool.length > 0 && !entry.tool.some((t) => haveCount(t) > 0)) {
-      const craftable = entry.tool.find((t) => depth < MAX_DEPTH && pick(t, depth + 1));
-      if (!craftable) {
-        missing.push({ item: bare(entry.tool[0]), reason: `做「${key}」要工具（${entry.tool.map(bare).join(' / ')}），背包里没有也做不出` });
-        return false;
+      const fromStock = entry.tool.find((t) => stockCount(t) > 0);
+      if (fromStock) {
+        takeFromStock(fromStock, 1);
+      } else {
+        // 背包和箱子都没有：只能现做一把
+        const craftable = entry.tool.find((t) => depth < MAX_DEPTH && pick(t, depth + 1));
+        if (!craftable) {
+          missing.push({ item: bare(entry.tool[0]), reason: `做「${key}」要工具（${entry.tool.map(bare).join(' / ')}），背包里没有也做不出` });
+          return false;
+        }
+        if (!ensure(craftable, 1, depth + 1, nextPath)) return false;
       }
-      if (!ensure(craftable, 1, depth + 1, nextPath)) return false;
     }
 
     // 原料：按批数逐组凑（每组任选一种可满足的候选）
@@ -269,6 +304,9 @@ export function planTarget(graph, opts) {
       const needN = batches;
       const known = group.find((g) => haveCount(g) >= needN);
       if (known) { take(known, needN); continue; }
+      // 背包不够但箱子里有：排 take，取到的正好用在这一批上
+      const inStock = group.find((g) => stockCount(g) >= needN);
+      if (inStock) { takeFromStock(inStock, needN); take(inStock, needN); continue; }
       const craftable = group.find((g) => canMake(graph, g));
       if (craftable) {
         if (!ensure(craftable, needN, depth + 1, nextPath)) return false;

@@ -99,3 +99,45 @@ test('配方循环不会死循环，缺口写明白', () => {
   assert.ok(r.missing.some((m) => /循环/.test(m.reason)), JSON.stringify(r.missing));
 });
 
+
+test('箱子里的料也算：缺的先排 take，再照常做', () => {
+  const r = planTarget(graph, {
+    item: 'farm:beef_stew', count: 1, stations,
+    have: { 'minecraft:beef': 2, 'farm:iron_knife': 1 },
+    stock: { 'minecraft:carrot': 1, 'minecraft:potato': 1, 'minecraft:bowl': 1 },
+  });
+  assert.equal(r.ok, true, JSON.stringify(r.missing));
+  const skills = r.steps.map((s) => s.skill);
+  assert.ok(skills.includes('take'), '缺的胡萝卜/马铃薯要从箱子取');
+  assert.ok(skills.includes('cut'), '肉馅要从生牛肉切');
+  assert.equal(skills[skills.length - 1], 'pot', '最后才是下锅');
+});
+
+test('工具在箱子里也能取出来用（刀）', () => {
+  const r = planTarget(graph, {
+    item: 'farm:minced_beef', count: 2, stations,
+    have: { 'minecraft:beef': 1 },
+    stock: { 'farm:diamond_knife': 1 },
+  });
+  assert.equal(r.ok, true, JSON.stringify(r.missing));
+  assert.deepEqual(r.steps[0], { skill: 'take', item: 'farm:diamond_knife', count: 1 });
+  assert.equal(r.steps[1].skill, 'cut');
+});
+
+test('成品本身就在箱子里：只排一步 take', () => {
+  const r = planTarget(graph, {
+    item: 'minecraft:torch', count: 2, stations, have: {}, stock: { 'minecraft:torch': 5 },
+  });
+  assert.equal(r.ok, true);
+  // take 用短名（宿主的 take 认短名）：bare('minecraft:torch') = 'torch'
+  assert.deepEqual(r.steps, [{ skill: 'take', item: 'torch', count: 2 }]);
+});
+
+test('箱子里也不够：缺口照实说（不是整单失败）', () => {
+  const r = planTarget(graph, {
+    item: 'farm:beef_stew', count: 1, stations,
+    have: { 'minecraft:beef': 2, 'farm:iron_knife': 1 }, stock: {},
+  });
+  assert.equal(r.ok, false);
+  assert.ok(r.missing.some((m) => /carrot/.test(m.item + m.reason)), JSON.stringify(r.missing));
+});

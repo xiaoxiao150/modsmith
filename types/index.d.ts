@@ -89,6 +89,8 @@ export function planTarget(
     item: string;
     count?: number;
     have?: Record<string, number>;
+    /** 不在背包、但在够得着的箱子里的东西（缺料时排 take） */
+    stock?: Record<string, number>;
     stations?: Array<{ id: string; kind: string; recipeType?: string; recipeTypes?: string[] }>;
     maxSteps?: number;
   },
