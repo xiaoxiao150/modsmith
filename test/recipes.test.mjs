@@ -221,3 +221,18 @@ test('join：SimpleRecipeSerializer 条目标 unsupported，不再混进可消�
     assert.equal(e.result, undefined);
   }
 });
+
+test('join：自动命名过的盲搜配方能拼出原料与产物（不再落进 unsupported）', async () => {
+  const { joinRecipes } = await import('../src/recipes-join.mjs');
+  const parsed = [
+    {
+      name: 'farm:slice_cheese', type: 'farm:cheese_slicing',
+      data: { ingredient: [11], ingredient2: [12], result: { id: 13, count: 4 } },
+    },
+  ];
+  const { entries } = joinRecipes(parsed, { 'farm:cheese': 11, 'farm:knife': 12, 'farm:slice': 13 }, {});
+  assert.equal(entries.length, 1);
+  assert.deepEqual(entries[0].ingredients, [[{ id: 'farm:cheese' }], [{ id: 'farm:knife' }]]);
+  assert.deepEqual(entries[0].result, { id: 'farm:slice', count: 4 });
+  assert.equal(entries[0].unsupported, undefined);
+});

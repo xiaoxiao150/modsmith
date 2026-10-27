@@ -15,7 +15,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { dirname, join, resolve } from 'node:path';
 import { parseDeclareRecipes } from './recipes.mjs';
 import { vanillaItemTable, joinRecipes } from './recipes-join.mjs';
-import { discoverSerializers, sidesheetFromDiscovery, mergeAccepted } from './recipes-discover.mjs';
+import { discoverSerializers, sidesheetFromDiscovery, mergeAccepted, semanticFieldNames } from './recipes-discover.mjs';
 import { readManifest, writeManifest } from './manifest-io.mjs';
 import { mergeIdsTables } from './ids-merge.mjs';
 import { Zip } from './zip.mjs';

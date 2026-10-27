@@ -100,6 +100,14 @@ export function joinRecipes(parsed, modItems, vanillaById) {
       return list;
     };
     const t = out.type;
+    /** 盲搜文法自动命名后的原料字段：ingredient / ingredient2 / optional-ingredient… */
+    const looseIngredients = () => {
+      if (Array.isArray(d.ingredients)) return d.ingredients;
+      const keys = Object.keys(d).filter((k) => /^ingredient(\d+)?$/.test(k) || /^optional-ingredient/.test(k));
+      if (keys.length === 0) return null;
+      return keys.map((k) => d[k]).filter((v) => Array.isArray(v));
+    };
+    const looseResult = () => d.result ?? (Array.isArray(d.results) ? d.results[0] : undefined);
 
     if (t === 'crafting_shapeless') {
       out.ingredients = (d.ingredients ?? []).map((ids) => items(ids));
@@ -175,6 +183,14 @@ export function joinRecipes(parsed, modItems, vanillaById) {
     } else if (SPECIAL_UNSUPPORTED[t]) {
       out.raw = d;
       out.unsupported = SPECIAL_UNSUPPORTED[t];
+    } else if ((looseIngredients()?.length ?? 0) > 0 && looseResult()?.id) {
+      // 盲搜文法自动命名过的（ingredient/ingredient2/result）：语义够拼出原料与产物，
+      // 哪怕类型没有专门分支也不该丢。工具类原料仍按原料记——分不出就如实留着。
+      out.ingredients = looseIngredients().map((ids) => items(ids));
+      out.result = resultItem(looseResult());
+      if (!ok) unresolved.push(rec.name);
+      else entries.push(out);
+      continue;
     } else {
       out.raw = d;
       // 区分两种"没原料/产物"：

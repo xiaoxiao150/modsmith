@@ -751,6 +751,42 @@ export function solveAnchored(buf, opts = {}) {
 }
 
 /**
+ * 盲搜出来的字段名是 f0/f1——形状（kind）是确定的，但 join 只认语义名
+ * （ingredients/result），所以不命名就会整批落进 unsupported。
+ *
+ * 规则只做**无歧义**的推断：
+ *   - ingredients 类字段 → ingredients
+ *   - 多个 ingredient/optional-ingredient → ingredient、ingredient2、…
+ *   - **最后一个** slot → result；其余 slot → slot2、slot3…
+ *   - list<slot> → results
+ * 有歧义的（varint/f32、非末尾 slot 到底是容器还是别的）保持 fN，留给人。
+ */
+export function semanticFieldNames(fields = []) {
+  const out = [];
+  let ing = 0;
+  let slot = 0;
+  let lastSlot = -1;
+  fields.forEach((f, i) => { if (f.kind === 'slot') lastSlot = i; });
+  fields.forEach((f, i) => {
+    let name = f.name;
+    if (!/^f\d+$/.test(name)) { out.push(f); return; }
+    if (f.kind === 'ingredients') name = 'ingredients';
+    else if (f.kind === 'ingredient' || f.kind === 'optional-ingredient') {
+      name = ing === 0 ? 'ingredient' : `ingredient${ing + 1}`;
+    } else if (f.kind === 'slot') {
+      name = i === lastSlot ? 'result' : `slot${slot + 2}`;
+      if (i !== lastSlot) slot += 1;
+    } else if (f.kind === 'list' && Array.isArray(f.item)
+      && f.item.length > 0 && f.item.every((x) => x.kind === 'slot')) {
+      name = 'results';
+    }
+    if (name.startsWith('ingredient')) ing += 1;
+    out.push({ ...f, name });
+  });
+  return out;
+}
+
+/**
  * 把发现结果变成待审的 sidesheet 文件内容。结构与正式 `<pack>.serializers.json` 相同
  * （discover 走通后 `recipes` 可直接吃它做验证），但每条带 `_confirmed: false`——
  * **必须由人核对后抄进正式 sidesheet 才生效**，这是「错名比未知更糟」的落地。
@@ -760,7 +796,7 @@ export function sidesheetFromDiscovery(result, { mod = '' } = {}) {
   for (const d of result.discovered) {
     serializers[String(d.typeId)] = {
       name: d.name ?? null,
-      fields: d.fields,
+      fields: semanticFieldNames(d.fields),
       _confirmed: false,
       _shape: d.shape,
       _occurrences: d.occurrences,

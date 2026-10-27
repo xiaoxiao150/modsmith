@@ -306,3 +306,23 @@ test('名字真缺一条时，诊断仍然指向名字清单', () => {
   assert.equal(r.ok, false);
   assert.match(r.notes.join('\n'), /名字清单可能不完整/);
 });
+
+test('盲搜文法自动起语义字段名：ingredient→ingredients、最后一个 slot→result', async () => {
+  const { semanticFieldNames } = await import('../src/recipes-discover.mjs');
+  const named = semanticFieldNames([
+    { name: 'f0', kind: 'optional-ingredient' },
+    { name: 'f1', kind: 'ingredient' },
+    { name: 'f2', kind: 'slot' },
+  ]);
+  assert.deepEqual(named.map((f) => f.name), ['ingredient', 'ingredient2', 'result']);
+  // 多个 slot：最后一个才是 result，前面的留成 slot2（有歧义，不猜容器）
+  const twoSlots = semanticFieldNames([
+    { name: 'f0', kind: 'ingredient' },
+    { name: 'f1', kind: 'slot' },
+    { name: 'f2', kind: 'slot' },
+  ]);
+  assert.deepEqual(twoSlots.map((f) => f.name), ['ingredient', 'slot2', 'result']);
+  // 有歧义的 varint 保持 f 名，不进语义命名
+  const mixed = semanticFieldNames([{ name: 'f0', kind: 'varint' }, { name: 'f1', kind: 'ingredients' }]);
+  assert.deepEqual(mixed.map((f) => f.name), ['f0', 'ingredients']);
+});
