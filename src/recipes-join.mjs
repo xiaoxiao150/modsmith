@@ -176,10 +176,16 @@ export function joinRecipes(parsed, modItems, vanillaById) {
       out.raw = d;
       out.unsupported = SPECIAL_UNSUPPORTED[t];
     } else {
-      // crafting_special_* / dough / food_serving：SimpleRecipeSerializer 只发一个 category，
-      // 没有原料也没有产物数据——不是"解析失败"，是协议里就没有。标出来，别混进可消费计数。
       out.raw = d;
-      out.unsupported = 'SimpleRecipeSerializer：服务端只发 category，无原料/产物数据';
+      // 区分两种"没原料/产物"：
+      //   - 协议里真的没有（SimpleRecipeSerializer 只发一个 category）
+      //   - 字段读出来了，但名字不是语义名（文法发现盲搜给的 f0/f1，没人核对命名）
+      // 后者报成前者的错，会让人以为 mod 没数据；实际是 sidesheet 里把字段改名就能用。
+      const parsedFields = Object.keys(d ?? {});
+      const looksSimple = parsedFields.length <= 1;
+      out.unsupported = looksSimple
+        ? 'SimpleRecipeSerializer：服务端只发 category，无原料/产物数据'
+        : `字段名不是语义名（${parsedFields.slice(0, 6).join('/')}）：文法已解出，需在 sidesheet 里把原料/产物字段改成 ingredients/result`;
     }
 
     if (!ok) unresolved.push(rec.name);

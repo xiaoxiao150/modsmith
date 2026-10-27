@@ -273,6 +273,33 @@ export function installMineflayerFixes(bot, opts = {}) {
   };
 
   patch();
+
+  // 模组自定义窗口：prismarine-windows 不认识就会让 createWindow 返回 null，
+  // mineflayer 的 open_window 监听器立刻 `window.id` 崩掉整个进程（Fromage 实测，
+  // 探到第 40 个方块时）。窗口类型本身是重要证据——"开了一个未知窗外"要记成
+  // 开窗（机制=侧车），不能因为播不出来就当成"不开窗"。
+  const emitter = client;
+  if (!emitter.__modsmithEmitGuard) {
+    const origEmit = emitter.emit.bind(emitter);
+    emitter.emit = function guardedEmit(event, ...args) {
+      try {
+        return origEmit(event, ...args);
+      } catch (err) {
+        if (event === 'open_window') {
+          const type = String(args?.[0]?.inventoryType ?? 'unknown');
+          bot._modsmithUnknownWindow = type;
+          if (!seen.has(`window:${type}`)) {
+            seen.add(`window:${type}`);
+            console.warn(`模组自定义窗口类型 ${type}：prismarine-windows 不认识，记为"开窗但界面未知"`);
+          }
+          return false;
+        }
+        throw err;
+      }
+    };
+    emitter.__modsmithEmitGuard = true;
+  }
+
   client.on('state', patch);
 }
 

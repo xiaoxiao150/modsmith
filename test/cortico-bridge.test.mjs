@@ -106,3 +106,24 @@ test('食物只进 foodsByName：skillEat 靠它放行', () => {
 test('registry 形状不对就拒绝注入', () => {
   assert.throws(() => installModRegistry({ registry: {} }, { manifest: { blocks: {} }, ids: {} }), /registry 形状不对/);
 });
+
+test('自定义窗口类型不会把进程打崩：记成"开窗但界面未知"', async () => {
+  const { installMineflayerFixes } = await import('../src/cortico-bridge.mjs');
+  // 模拟 mineflayer：open_window 监听到未知类型时 createWindow 返回 null，随后读 window.id 抛错
+  const { EventEmitter } = await import('node:events');
+  const client = new EventEmitter();
+  client.deserializer = { parsePacketBuffer: (b) => b };
+  client.state = 'play';
+  const bot = { _client: client };
+  installMineflayerFixes(bot);
+  client.on('open_window', (packet) => {
+    const win = null;               // prismarine-windows 不认识这个 inventoryType
+    void win.id;                    // mineflayer 原样会在这里抛 TypeError
+  });
+  assert.equal(client.emit('open_window', { inventoryType: 25, windowId: 1 }), false, '错误被吞掉，事件不扩散');
+  assert.equal(bot._modsmithUnknownWindow, '25', '窗口类型要留下，probe 据此算"开窗"');
+
+  // 别的监听器抛错不能被吞：只有窗口事件有守卫
+  client.on('other', () => { throw new Error('boom'); });
+  assert.throws(() => client.emit('other'), /boom/);
+});

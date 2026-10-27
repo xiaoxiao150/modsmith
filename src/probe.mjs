@@ -26,6 +26,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  */
 async function tryOpen(bot, block, ms) {
   let win = null;
+  // 自定义窗口类型会被 installMineflayerFixes 的 emit 守卫记在这里：prismarine-windows
+  // 不认识 → createWindow 返回 null → 窗口事件不会来。这种"开了但界面未知"必须算开窗。
+  bot._modsmithUnknownWindow = null;
   const onWin = (w) => { win = w; };
   bot.once('windowOpen', onWin);
   const open = block.name.includes(':') ? bot.openBlock(block) : bot.openContainer(block);
@@ -38,6 +41,9 @@ async function tryOpen(bot, block, ms) {
   } catch (err) {
     bot.removeListener('windowOpen', onWin);
     await sleep(150);
+    if (bot._modsmithUnknownWindow) {
+      return { opened: true, type: bot._modsmithUnknownWindow, slots: null, error: '自定义窗口（界面未知）' };
+    }
     const got = win ?? bot.currentWindow ?? null;
     if (got) {
       const info = { opened: true, type: got.type, slots: got.slots?.length };
@@ -47,6 +53,9 @@ async function tryOpen(bot, block, ms) {
     return { opened: false, error: String(err.message ?? err).slice(0, 120) };
   }
   bot.removeListener('windowOpen', onWin);
+  if (bot._modsmithUnknownWindow) {
+    return { opened: true, type: bot._modsmithUnknownWindow, slots: null, error: '自定义窗口（界面未知）' };
+  }
   const got = win ?? bot.currentWindow ?? null;
   if (got) {
     const info = { opened: true, type: got.type, slots: got.slots?.length };
