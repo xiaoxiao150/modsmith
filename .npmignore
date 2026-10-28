@@ -1,0 +1,7 @@
+# npm 包只带源码与模板；Gradle/Loom 的本地缓存和构建产物绝不进包。
+**/.gradle/
+**/build/
+**/run/
+**/.fabric/
+**/*.log
+**/*.tmp
