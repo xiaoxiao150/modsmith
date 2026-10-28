@@ -117,6 +117,20 @@ calibrate / probe / verify 是在**你自己的服务器上动手**：`forceload
 没有 OP 就是每条命令静默失败。支持范围也只有 Fabric（Forge/NeoForge 的 FML 握手
 是另一套协议，投入产出比差）。
 
+## 最快接包：注册表 dump（秒级，替代逐状态校准）
+
+`templates/registry-dump` 是一个只读的服务端 Fabric mod：启动后把服务端真实注册表写成
+`config/modsmith-dump.json`，**不注册任何方块/物品**。装一次 → 启动 → 拿 dump → 停服删 jar：
+
+```bash
+modsmith import-dump config/modsmith-dump.json \
+  --manifest mods/<pack>.json --ids mods/<pack>-ids.json \
+  --server-mods mods
+```
+
+`import-dump` 只保留清单声明的方块/物品，剔除 vanilla 区间与重复 stateId。TF 这种
+523 方块 / 17255 状态的大包，从“逐状态 setblock 约 1.5 小时”变成秒级。
+
 ## 四步
 
 先装：`npm i -g modsmith`（或每条命令前加 `npx`）。
