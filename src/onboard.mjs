@@ -26,13 +26,14 @@
  *   artifacts?: { manifest?: boolean, ids?: boolean, serverRecipes?: boolean },
  *   dryRecipes?: boolean,     // recipes 步骤不写回（默认写）
  *   noBuild?: boolean,        // sidecar 不编译
+ *   dump?: string | null,     // registry dump JSON：有就替代 calibrate（秒级）
  * }} opts
  * @returns {{ steps: Array<{id, title, argv: string[], done: boolean, blocked: boolean, reason: string}>, manifestPath: string, idsPath: string }}
  */
 export function onboardPlan(opts) {
   const {
     jar, pack, modsDir = './mods', server = null, skip = [], resume = false,
-    artifacts = {}, dryRecipes = false, noBuild = false,
+    artifacts = {}, dryRecipes = false, noBuild = false, dump = null,
   } = opts;
   const dir = modsDir.replace(/[\\/]+$/, '');
   const manifestPath = `${dir}/${pack}.json`;
@@ -64,13 +65,21 @@ export function onboardPlan(opts) {
     return { id, title, argv, done: Boolean(resume && done && !skipped), blocked, reason };
   };
 
+  const idStep = () => (dump
+    ? step('ids', '注册表 dump → ids（秒级）', [
+      'import-dump', dump, '--manifest', manifestPath, '--ids', idsPath,
+      ...(srv.serverMods ? ['--server-mods', String(srv.serverMods)] : []),
+      ...(srv.mcVersion ? ['--mc-version', String(srv.mcVersion)] : []),
+    ], Boolean(artifacts.ids), false)
+    : step('calibrate', '现场量数字 id', ['calibrate', manifestPath, '--ids', idsPath, ...(resume ? ['--resume'] : []), ...serverArgs], Boolean(artifacts.ids), true));
+
   return {
     manifestPath,
     idsPath,
     probePath,
     steps: [
       step('inspect', '静态提取清单', ['inspect', jar, '--out', modsDir, '--pack', pack], Boolean(artifacts.manifest), false),
-      step('calibrate', '现场量数字 id', ['calibrate', manifestPath, '--ids', idsPath, ...(resume ? ['--resume'] : []), ...serverArgs], Boolean(artifacts.ids), true),
+      idStep(),
       // --scan-blocks：把候选方块逐个右键一遍，记录开窗行为——这是 learn --infer 的证据。
       step('probe', '实测容器/站点 + 方块扫描', ['probe', manifestPath, '--pack', pack, '--mods-dir', modsDir,
         '--scan-blocks', '--out', probePath, ...serverArgs], Boolean(artifacts.probe), true),

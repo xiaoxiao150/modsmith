@@ -99,19 +99,23 @@ const USAGE = `modsmith ${VERSION} — 把 Fabric mod jar 变成机器人能用�
                            名字清单越全，切段越准（数据包跨命名空间加的配方查不到）
 
   modsmith onboard <mod.jar> --pack <name> [选项]
-      新包接入一条龙：inspect → calibrate → probe → verify → recipes → sidecar。
+      新包接入一条龙：inspect → ids(dump/calibrate) → probe → verify → recipes → sidecar。
       前提：jar 已经装进服务器 mods 目录（onboard 绝不自动装）。
+      有 registry dump 时默认走 import-dump（秒级）；没有才 calibrate。
       哪步失败就停在哪，修完重跑（配 --resume 跳过已有产物的步骤）。
 
       --pack <name>          必填：包名（mods/ 下的文件名，不带 .json）
       --out <dir>            manifest/ids 目录，默认 ./mods
+      --dump <file>          指定 registry dump JSON（templates/registry-dump 产出）
+      --no-dump              即使找到 dump 也强制用 calibrate
       --resume               产物已存在的步骤直接跳过
-      --skip <id,id,…>       显式跳过某些步骤（inspect/calibrate/probe/verify/recipes/sidecar）
+      --skip <id,id,…>       显式跳过某些步骤（inspect/ids/calibrate/probe/verify/recipes/sidecar）
       --plan                 只打印步骤清单，不执行
       --dry-recipes          recipes 步骤不写回 manifest（默认写，95% 闸门兜底）
       --no-build             sidecar 只出配置不编译（也就不写回命令）
       其余 --host/--port/--rcon-port/--rcon-password/--server-mods/--mc-version/--x/y/z
-      与 calibrate 相同，转给需要服务器的步骤。
+      与 calibrate 相同，转给需要服务器的步骤。注意：dump 只替代 id 测量，
+      probe / verify / recipes / learn 仍然要跑。
 
   modsmith merge <ids1.json> <ids2.json> ... --out <file>
       把分阶段量出来的 ids 合并（后者只覆盖它有数据的部分）。
@@ -309,6 +313,20 @@ async function cmdOnboard(args) {
   const modsDir = resolve(typeof args.out === 'string' ? args.out : './mods');
   const { onboardPlan } = await import('../src/onboard.mjs');
 
+  // 有注册表 dump 就优先用它（秒级）；--no-dump 强制回到 calibrate。
+  let dump = typeof args.dump === 'string' ? resolve(args.dump) : null;
+  if (!dump && args['no-dump'] !== true && typeof args['server-mods'] === 'string') {
+    const sm = resolve(args['server-mods']);
+    for (const candidate of [
+      join(sm, '..', 'config', 'modsmith-dump.json'),
+      join(sm, 'config', 'modsmith-dump.json'),
+      join(sm, 'modsmith-dump.json'),
+    ]) {
+      if (existsSync(candidate)) { dump = candidate; break; }
+    }
+  }
+  if (dump && !existsSync(dump)) fatal(`找不到 dump：${dump}`);
+
   const manifestPath = join(modsDir, `${pack}.json`);
   const idsPath = join(modsDir, `${pack}-ids.json`);
   let hasServerRecipes = false;
@@ -327,6 +345,7 @@ async function cmdOnboard(args) {
     jar,
     pack,
     modsDir,
+    dump,
     server: {
       host: args.host, port: args.port, rconPort: args['rcon-port'],
       rconPassword: args['rcon-password'], mcVersion: args['mc-version'],

@@ -219,3 +219,24 @@ test('learn --infer --force 会整段重推（人工命令也覆盖，显式要�
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('onboard：有 dump 时用 import-dump 替代 calibrate，probe/verify 仍保留', () => {
+  const plan = onboardPlan({
+    jar: 'x.jar', pack: 'tiny-mod', server: SRV, dump: './dump.json',
+  });
+  const ids = plan.steps.map((s) => s.id);
+  assert.deepEqual(ids, ['inspect', 'ids', 'probe', 'recipes', 'learn', 'verify', 'sidecar']);
+  const idStep = plan.steps[1];
+  assert.equal(idStep.argv[0], 'import-dump');
+  assert.ok(idStep.argv.includes('--manifest'));
+  assert.ok(idStep.argv.includes('--ids'));
+  assert.ok(plan.steps.some((s) => s.id === 'probe'));
+  assert.ok(plan.steps.some((s) => s.id === 'verify'));
+});
+
+test('onboard：只有 dump、没有 RCON 时，id 步可执行，probe/verify 仍被服务器卡住', () => {
+  const plan = onboardPlan({ jar: 'x.jar', pack: 'tiny-mod', dump: './dump.json' });
+  assert.equal(plan.steps[0].blocked, false, 'inspect 不需要服务器');
+  assert.equal(plan.steps[1].blocked, false, 'ids 只读 dump，不需要 RCON');
+  assert.equal(plan.steps[2].blocked, true, 'probe 仍需要服务器');
+});

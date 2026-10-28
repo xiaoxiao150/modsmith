@@ -22,12 +22,12 @@ export function fingerprintOf(files) {
 }
 
 /**
- * 不参与指纹的文件：`modsmith-sidecar-*` 是我们自己产出的通用侧车。
- *
- * 它只注册命令、不注册任何方块/物品，**不可能让 id 位移**；把它算进指纹会让
- * "装上侧车 → verify 立刻说 ids 过期"——实测在 onboard 链上直接卡死。
+ * 不参与指纹的文件：
+ *   - `modsmith-sidecar-*`：只注册命令、不注册任何方块/物品，不可能让 id 位移；
+ *   - `modsmith-dump-*`：只读注册表写 JSON，同样不注册内容。把它算进指纹会让
+ *     “装了 dump → ids 立刻过期”，而 dump 本来就是一次性测量工具，不该成为运行时依赖。
  */
-const IGNORED = [/^modsmith-sidecar.*\.jar$/i];
+const IGNORED = [/^modsmith-sidecar.*\.jar$/i, /^modsmith-dump.*\.jar$/i];
 
 /** 读一个 mods 目录（顶层文件），算出指纹。目录不存在/读不了会抛，由调用方决定怎么报。 */
 export function fingerprintDir(dir) {
