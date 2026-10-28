@@ -10,9 +10,10 @@
 items, recipes, tags, crops) plus **measured registry ids** that any mineflayer
 bot can use. It solves Minecraft 1.21's static-registry problem: mod blocks and
 items are never downloaded, their numeric ids depend on load order, and recipes
-live in serializers the bot doesn't know. modsmith reads the jar, measures the
-ids on a live server you own (OP + RCON), and fingerprints the result. It is the
-data layer for an AI companion that actually plays modded Minecraft.
+live in serializers the bot doesn't know. modsmith reads the jar, then either
+dumps the server registry (seconds, bundled dump mod) or falls back to measuring
+on a live server (OP + RCON), and fingerprints the result. It is the data layer
+for an AI companion that actually plays modded Minecraft.
 
 **中文一句话：**把 Fabric 模组 jar 变成机器人能读、能用的语义清单和实测数字 id；
 让她看得见模组方块、做得出模组配方、放得下模组装饰。
@@ -20,6 +21,24 @@ data layer for an AI companion that actually plays modded Minecraft.
 > 它是 **AI 陪伴项目**的语义层：宿主（Cortico）是一个真玩家账号上的 AI，
 > modsmith 负责把她面前的任意模组变成可读的配方/站点/id 数据。
 > 方向与阶段见 [ROADMAP.md](ROADMAP.md)。
+
+## 接包时间：3 小时 → 几秒
+
+以前接一个大包要逐个 block state 做 `setblock` + 回读：TF 523 方块 / **17255 个状态**
+要跑 1.5 小时，Supplementaries 14996 个状态要接近 1 小时。现在：
+
+| | 逐状态 `calibrate` | `registry-dump` |
+|---|---|---|
+| 时间 | TF 约 1.5h，Supp 约 1h | dump + import，**秒级** |
+| 需要 | 服务器 + OP + RCON + 一个裸 bot | 服务端装一个 4KB 只读 mod，重启一次 |
+| 覆盖 | 清单声明的状态子集 | 服务端注册表的全部状态 |
+| 风险 | 区块失新/残留读数，靠自检兜底 | 注册表真值；只读、不注册内容 |
+
+jar 已经**内置在 modsmith 里**：`templates/registry-dump/modsmith-dump-0.1.0.jar`；
+`modsmith dump-jar` 直接打印路径，`onboard` 会自动找 `config/modsmith-dump.json`。
+仍然不会自动安装——装/删由人决定，因为那是改用户的服务器，不是改本地文件。
+
+dump 只替代 **id 测量**：`probe` / `verify` / `recipes` / `learn` 照样要跑。
 
 ## 没有它 / 有它
 
@@ -59,22 +78,24 @@ node modsmith/bin/modsmith.mjs inspect path/to/mod.jar --out ./mods
 
 | 包 | MC / 依赖 | 覆盖 | 备注 |
 |---|---|---|---|
-| Farmer's Delight 3.3.6 | 1.21.1 / Fabric API | 131/132 方块、185/187 物品、1594 条可用配方 | 生产在用；站点 `cutting_board`/`cooking_pot` 已验证 |
-| Supplementaries 4.0.2 | 1.21.1 / Moonlight 3.7.2 | 237/271 方块、248/297 物品、306 条可用配方 | 装饰验收：两间 5×5 房间、25 件装饰 |
-| Twilight Forest 4.8.796 | 1.21.1 / Fabric | 接包中（4.8.629 的 2134 条配方存档） | 独立 TF 服，下一步 |
+| Farmer's Delight 3.3.6 | 1.21.1 / Fabric API | 131/131 方块、185/185 物品、1594 条可用配方 | 生产在用；站点 `cutting_board`/`cooking_pot` 已验证 |
+| More Delight 26.04.30 | 1.21.1 / FD | 0 方块、37/38 物品、51 条配方 | 农夫乐事扩展；纯物品/配方 |
+| Supplementaries 4.0.2 | 1.21.1 / Moonlight 3.7.2 | 237/237 方块、248/248 物品、306 条可用配方 | 装饰验收：两间 5×5 房间、25 件装饰 |
+| Twilight Forest 4.8.796 | 1.21.1 / Fabric API | 523/523 方块、660/718 物品、540 条配方、17255 状态 | 已接入；维度传送/实体/战利品待验 |
 
-缺失的方块不是“漏了”，是服务器没注册的兼容/技术方块；清单按实测裁剪，
+缺失的方块/物品不是“漏了”，是服务器没注册的兼容/技术变体；清单按实测裁剪，
 不会把装不出来的东西列给机器人。
 
-**预生成参考包**：[modsmith-0.6.2-reference-packs.zip](https://github.com/xiaoxiao150/modsmith/releases/download/v0.6.2/modsmith-0.6.2-reference-packs.zip)
+**预生成参考包（0.6.2，FD + Supplementaries）**：[modsmith-0.6.2-reference-packs.zip](https://github.com/xiaoxiao150/modsmith/releases/download/v0.6.2/modsmith-0.6.2-reference-packs.zip)
 （两份 manifest + 对应 ids + 精确 mod 列表）。manifest 可直接复用；`-ids.json`
 带服务器指纹，只对压缩包内 `SERVER-MODS.md` 那套完全相同的 mod 组合有效——
-换了 jar 请重新 `calibrate --fresh`，不要混用。
+换了 jar 请重新 dump/calibrate，不要混用。
 
 ## 状态（0.6.3，AI 陪伴：生活 / 装饰 / 冒险）
 
-- **0.6.3（文档同步）**：npm 页面的 README 是发布时快照，这个版本把
-  `npm i -g modsmith` / `npx modsmith` 的主路径同步到 npm；无功能变更。
+- **registry-dump 快路径（主线，随包内置）**：接包从逐状态数小时降到秒级；
+  `onboard` 自动优先用它，`calibrate` 只在没有服务器文件权限时作为退路。
+  dump jar 不自动安装，装/删由人决定。
 
 **数据层（本仓库）**
 
