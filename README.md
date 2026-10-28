@@ -120,7 +120,10 @@ calibrate / probe / verify 是在**你自己的服务器上动手**：`forceload
 ## 最快接包：注册表 dump（秒级，替代逐状态校准）
 
 `templates/registry-dump` 是一个只读的服务端 Fabric mod：启动后把服务端真实注册表写成
-`config/modsmith-dump.json`，**不注册任何方块/物品**。装一次 → 启动 → 拿 dump → 停服删 jar：
+`config/modsmith-dump.json`，**不注册任何方块/物品**。已发布现成 jar：
+[modsmith-dump-0.1.0.jar](https://github.com/xiaoxiao150/modsmith/releases/download/registry-dump-v0.1.0/modsmith-dump-0.1.0.jar)。
+
+装一次 → 启动 → 拿 dump → 停服删 jar：
 
 ```bash
 modsmith import-dump config/modsmith-dump.json \
