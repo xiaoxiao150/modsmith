@@ -71,7 +71,10 @@ node modsmith/bin/modsmith.mjs inspect path/to/mod.jar --out ./mods
 带服务器指纹，只对压缩包内 `SERVER-MODS.md` 那套完全相同的 mod 组合有效——
 换了 jar 请重新 `calibrate --fresh`，不要混用。
 
-## 状态（0.6.2，AI 陪伴：生活 / 装饰 / 冒险）
+## 状态（0.6.3，AI 陪伴：生活 / 装饰 / 冒险）
+
+- **0.6.3（文档同步）**：npm 页面的 README 是发布时快照，这个版本把
+  `npm i -g modsmith` / `npx modsmith` 的主路径同步到 npm；无功能变更。
 
 **数据层（本仓库）**
 
