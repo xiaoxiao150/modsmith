@@ -21,9 +21,18 @@ from a live server you own (OP + RCON required) and keeps the mapping
 fingerprinted. Docs are Chinese-first; this README and `AGENTS.md` carry the
 full design notes.
 
-## 状态（0.6.1，方向已转向 AI 陪伴）
+## 状态（0.6.2，AI 陪伴：生活 / 装饰 / 冒险）
 
 - **L1 完成**：单包接入（Farmer's Delight 3.3.6）从 jar 到机器人可用的清单与 ids，生产在用。
+- **P2 装饰（2026-10-28）**：Supplementaries 4.0.2 + Moonlight 3.7.2 实测接入
+  （237/271 方块、248/297 物品、306 条可用配方；缺的是未注册的兼容/技术方块，清单已按实测裁剪）。
+  宿主侧补了 `mc_modblocks`（按关键词查包内方块/物品）、`mc_scan`（房间实况：
+  方块计数/可站格/门）与 `place.face`（壁挂装饰）。真机验收：她自己扫房、选材，
+  在两间不同材质的房间里贴出 13 + 12 件装饰，并把暖/冷两套风格写进笔记。
+- **inspect 契约修复**：自定义序列化器把 `result` 写成字符串时，清单统一收成
+  `{id,count}`（否则宿主 `validate` 会整份拒收）；原版 tag 可从服务器 jar 的
+  `data/minecraft/tags/` 展开后并入 `candidates`，让 `minecraft:wooden_slabs`
+  这类原版 tag 配方装得进配方表。
 - **L2 基本完成**："换一个 mod 只要几条命令 + 审一张表"。暮色森林 4.8.629 实测：
   2134 条配方全解析、17 个自定义序列化器自动发现，不需要 javap；农夫乐事端到端
   `onboard` 通过（发现 → `--accept` → 修订单）。缺口：线上同形的语义拆分
