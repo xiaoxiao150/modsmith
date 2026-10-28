@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "id": "modsmith_dump",
+  "version": "${version}",
+  "name": "modsmith registry dump",
+  "description": "Dump every block state id and item id from the running server registry into config/modsmith-dump.json. Registers no content; remove it after the dump.",
+  "authors": ["modsmith"],
+  "license": "MIT",
+  "environment": "server",
+  "entrypoints": {
+    "main": ["dev.modsmith.dump.RegistryDumpMod"]
+  },
+  "depends": {
+    "fabricloader": ">=0.16.0",
+    "fabric-api": "*",
+    "minecraft": "~${minecraft_version}"
+  }
+}

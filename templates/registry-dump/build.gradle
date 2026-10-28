@@ -1,0 +1,39 @@
+plugins {
+    id 'fabric-loom' version '1.9-SNAPSHOT'
+    id 'java'
+}
+
+version = '0.1.0'
+group = 'dev.modsmith'
+base {
+    archivesName = 'modsmith-dump'
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    minecraft "com.mojang:minecraft:1.21.1"
+    mappings "net.fabricmc:yarn:1.21.1+build.3:v2"
+    modImplementation "net.fabricmc:fabric-loader:0.16.9"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:0.115.6+1.21.1"
+}
+
+processResources {
+    inputs.property "version", project.version
+    inputs.property "minecraft_version", '1.21.1'
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version, "minecraft_version": '1.21.1'
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    it.options.release = 21
+    it.options.encoding = 'UTF-8'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}

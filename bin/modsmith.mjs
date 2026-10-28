@@ -33,6 +33,15 @@ const USAGE = `modsmith ${VERSION} — 把 Fabric mod jar 变成机器人能用�
       --write-manifest       把实测结果写回清单（容器表以实测为准）
       其余参数与 calibrate 相同。
 
+  modsmith import-dump <dump.json> --manifest <manifest.json> [选项]
+      从服务端注册表 dump（templates/registry-dump）直接生成 ids，秒级，替代
+      逐状态 calibrate。dump 里的 stateId 是服务端真值；只做过滤与校验。
+
+      --manifest <file>     对应的语义清单（只保留它声明的方块/物品）
+      --ids <file>          输出 ids.json（默认与 manifest 同名加 -ids）
+      --server-mods <dir>   服务器 mods 目录：把指纹写进 ids（强烈建议）
+      --mc-version <ver>    原版上限判断用，默认 1.21.1
+
   modsmith calibrate <manifest.json> [选项]
       连一台装好 mod 的服务器，用 /setblock + /give 量出每个方块状态与物品的数字 id。
 
@@ -359,6 +368,22 @@ async function runCommand(args) {
   const cmd = args._[0];
   switch (cmd) {
     case 'inspect': return cmdInspect(args);
+    case 'import-dump': {
+      const dump = args._[1];
+      const manifest = args.manifest;
+      if (!dump || !manifest) fatal('import-dump 要 <dump.json> --manifest <manifest.json> [--ids <out.json>] [--server-mods <dir>]');
+      const mod = await import('../src/import-dump.mjs');
+      const result = mod.importDump(resolve(String(dump)), resolve(String(manifest)), {
+        idsPath: typeof args.ids === 'string' ? resolve(args.ids) : undefined,
+        serverMods: typeof args['server-mods'] === 'string' ? resolve(args['server-mods']) : undefined,
+        mcv: args['mc-version'],
+      });
+      console.log(result.out);
+      if (result.failed.length > 0) {
+        console.error(`! ${result.failed.length} 项被剔除（dump 里没有/落在 vanilla 区间/重复），详见 ids.failed`);
+      }
+      return;
+    }
     case 'recipes': {
       const mod = await import('../src/recipes-cli.mjs');
       return mod.default(args, { fatal });
