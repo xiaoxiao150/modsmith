@@ -4,10 +4,14 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { findExistingPack, inspectJar } from '../src/inspect.mjs';
 import { readSidecar, writeSidecar, sidecarTemplateFrom } from '../src/crops-sidecar.mjs';
 import { writeManifest, manifestPaths } from '../src/manifest-io.mjs';
 import { VERSION } from '../src/index.mjs';
+
+/** 随包分发的只读注册表 dump mod；不自动安装，只告诉人路径。 */
+const DUMP_JAR = fileURLToPath(new URL('../templates/registry-dump/modsmith-dump-0.1.0.jar', import.meta.url));
 
 const USAGE = `modsmith ${VERSION} — 把 Fabric mod jar 变成机器人能用的语义清单
 
@@ -41,6 +45,9 @@ const USAGE = `modsmith ${VERSION} — 把 Fabric mod jar 变成机器人能用�
       --ids <file>          输出 ids.json（默认与 manifest 同名加 -ids）
       --server-mods <dir>   服务器 mods 目录：把指纹写进 ids（强烈建议）
       --mc-version <ver>    原版上限判断用，默认 1.21.1
+
+  modsmith dump-jar
+      打印随包分发的 registry-dump jar 绝对路径（不自动安装）。
 
   modsmith calibrate <manifest.json> [选项]
       连一台装好 mod 的服务器，用 /setblock + /give 量出每个方块状态与物品的数字 id。
@@ -325,6 +332,12 @@ async function cmdOnboard(args) {
       if (existsSync(candidate)) { dump = candidate; break; }
     }
   }
+  if (!dump && args['no-dump'] !== true) {
+    console.error('! 没有 registry dump：默认 calibrate 可能要跑几小时（逐状态 setblock）。');
+    console.error(`  推荐把内置 jar 放进服务端 mods：${DUMP_JAR}`);
+    console.error('  重启服务端，拿 config/modsmith-dump.json，停服删 jar 后再跑同样的命令。');
+    console.error('  没有服务器文件权限时，显式加 --no-dump 走 calibrate。');
+  }
   if (dump && !existsSync(dump)) fatal(`找不到 dump：${dump}`);
 
   const manifestPath = join(modsDir, `${pack}.json`);
@@ -386,6 +399,11 @@ async function cmdOnboard(args) {
 async function runCommand(args) {
   const cmd = args._[0];
   switch (cmd) {
+    case 'dump-jar': {
+      if (!existsSync(DUMP_JAR)) fatal(`包里没有 dump jar：${DUMP_JAR}`);
+      console.log(DUMP_JAR);
+      return;
+    }
     case 'inspect': return cmdInspect(args);
     case 'import-dump': {
       const dump = args._[1];

@@ -47,7 +47,8 @@
     "types/",
     "README.md",
     "AGENTS.md",
-    "LICENSE"
+    "LICENSE",
+    "templates/registry-dump/modsmith-dump-0.1.0.jar"
   ],
   "engines": {
     "node": ">=22"

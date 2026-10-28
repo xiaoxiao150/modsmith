@@ -22,7 +22,9 @@ modsmith import-dump config/modsmith-dump.json \
 ```
 
 This replaces the hours-long `calibrate` (`setblock` per state) with a seconds-long
-registry read. A prebuilt jar is attached to the
+registry read. The prebuilt jar is bundled with modsmith at
+`templates/registry-dump/modsmith-dump-0.1.0.jar` (run `modsmith dump-jar` to print
+its absolute path); it is also attached to the
 [registry-dump-v0.1.0 release](https://github.com/xiaoxiao150/modsmith/releases/tag/registry-dump-v0.1.0).
 `import-dump` still filters: only manifest blocks/items, state ids
 below the vanilla ceiling and duplicate state ids are rejected.
