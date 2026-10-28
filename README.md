@@ -1,27 +1,69 @@
 # modsmith
 
-> 让 AI 在任意模组服里真正生活 / the data layer for an AI companion that actually plays Minecraft.
->
+[![release](https://img.shields.io/github/v/release/xiaoxiao150/modsmith)](https://github.com/xiaoxiao150/modsmith/releases)
+[![tests](https://github.com/xiaoxiao150/modsmith/actions/workflows/test.yml/badge.svg)](https://github.com/xiaoxiao150/modsmith/actions/workflows/test.yml)
+[![license](https://img.shields.io/github/license/xiaoxiao150/modsmith)](LICENSE)
+[![node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](package.json)
+
+**English TL;DR:** turn a Fabric mod jar into a semantic manifest (blocks,
+items, recipes, tags, crops) plus **measured registry ids** that any mineflayer
+bot can use. It solves Minecraft 1.21's static-registry problem: mod blocks and
+items are never downloaded, their numeric ids depend on load order, and recipes
+live in serializers the bot doesn't know. modsmith reads the jar, measures the
+ids on a live server you own (OP + RCON), and fingerprints the result. It is the
+data layer for an AI companion that actually plays modded Minecraft.
+
+**中文一句话：**把 Fabric 模组 jar 变成机器人能读、能用的语义清单和实测数字 id；
+让她看得见模组方块、做得出模组配方、放得下模组装饰。
+
 > 它是 **AI 陪伴项目**的语义层：宿主（Cortico）是一个真玩家账号上的 AI，
 > modsmith 负责把她面前的任意模组变成可读的配方/站点/id 数据。
 > 方向与阶段见 [ROADMAP.md](ROADMAP.md)。
 
-把 Fabric 模组 jar 变成**任何 mineflayer 机器人能用的语义清单**，并为 AI 陪伴场景补齐
-"看得见、做得出、放得下"所需要的那部分世界数据。
+## 没有它 / 有它
 
-Minecraft 机器人是原版协议客户端。它看不见模组方块、拿不到模组配方、也开不出模组界面——
-因为 1.21 起方块和物品是**静态注册表**，服务端从不下发，模组追加到哪个数字 id 取决于
-加载顺序。`modsmith` 把这一切补齐，并尽量让"接一个新 mod"变成几条命令。
+| | 没有 modsmith | 有 modsmith |
+|---|---|---|
+| 模组方块 | 客户端眼里是 `unknown`，状态 id 对不上 | 完整 id + 每个 state 的实测 id |
+| 模组配方 | 服务端自定义序列化器，机器人不认识 | 文法发现 + 清单，`make`/`craft` 能用 |
+| 换 jar / 加 mod | id 整体位移，旧数据静默放错方块 | 服务器指纹闸直接拒绝旧 ids |
+| 装饰/站点 | 不知道能不能放、怎么贴、开不开窗 | `probe`/`verify` 实测；宿主工具按结果执行 |
 
-**English in one paragraph:** modsmith turns a Fabric mod jar into a semantic
-manifest (blocks, items, recipes, tags, crops) plus measured numeric registry
-ids that any mineflayer bot can consume. It is the data layer for an AI
-companion that actually plays Minecraft: recipes, stations and measured ids
-instead of guesses. Minecraft bots speak the vanilla protocol and 1.21
-registries are static — mod blocks and items never get downloaded, so their
-numeric ids depend on load order. modsmith recovers them from a live server you
-own (OP + RCON required) and keeps the mapping fingerprinted. Docs are
-Chinese-first; this README and `AGENTS.md` carry the full design notes.
+## 给谁用
+
+- **mineflayer / JS bot 开发者**：不想再手写模组方块表和 id 偏移；
+- **AI agent / LLM 陪伴项目**：需要让 agent 真正调用模组配方和方块，而不是只会聊天；
+- **Fabric 整合包 / 服务器维护者**：想给自动化/机器人一条可复现的接包路径。
+
+## 30 秒看到结果
+
+不需要服务器、不需要 npm install（`inspect` 只读 jar）：
+
+```bash
+git clone --depth 1 https://github.com/xiaoxiao150/modsmith
+node modsmith/bin/modsmith.mjs inspect path/to/mod.jar --out ./mods
+```
+
+输出是 `mods/<pack>.json`：方块、物品、配方类型、tag、作物都在里面。要让它变成
+机器人真能用的数字 id，再按 [快速开始](#快速开始) 起一台自己的服务器跑 `calibrate`。
+
+> npm 包（`npx modsmith ...`）正在准备；发布前上面的 git 一行就是最短路径。
+
+## 支持的包（实测，不是“理论上”）
+
+| 包 | MC / 依赖 | 覆盖 | 备注 |
+|---|---|---|---|
+| Farmer's Delight 3.3.6 | 1.21.1 / Fabric API | 131/132 方块、185/187 物品、1594 条可用配方 | 生产在用；站点 `cutting_board`/`cooking_pot` 已验证 |
+| Supplementaries 4.0.2 | 1.21.1 / Moonlight 3.7.2 | 237/271 方块、248/297 物品、306 条可用配方 | 装饰验收：两间 5×5 房间、25 件装饰 |
+| Twilight Forest 4.8.796 | 1.21.1 / Fabric | 接包中（4.8.629 的 2134 条配方存档） | 独立 TF 服，下一步 |
+
+缺失的方块不是“漏了”，是服务器没注册的兼容/技术方块；清单按实测裁剪，
+不会把装不出来的东西列给机器人。
+
+**预生成参考包**：[modsmith-0.6.2-reference-packs.zip](https://github.com/xiaoxiao150/modsmith/releases/download/v0.6.2/modsmith-0.6.2-reference-packs.zip)
+（两份 manifest + 对应 ids + 精确 mod 列表）。manifest 可直接复用；`-ids.json`
+带服务器指纹，只对压缩包内 `SERVER-MODS.md` 那套完全相同的 mod 组合有效——
+换了 jar 请重新 `calibrate --fresh`，不要混用。
 
 ## 状态（0.6.2，AI 陪伴：生活 / 装饰 / 冒险）
 

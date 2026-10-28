@@ -1,7 +1,7 @@
 {
   "name": "modsmith",
   "version": "0.6.2",
-  "description": "Turn a Fabric mod jar into a semantic manifest any mineflayer bot can use",
+  "description": "Turn Fabric mod jars into semantic manifests + measured registry ids for mineflayer AI companions.",
   "type": "module",
   "license": "MIT",
   "author": "modsmith contributors",
@@ -20,8 +20,15 @@
     "mod",
     "manifest",
     "calibration",
-    "bot"
+    "bot",
+    "minecraft-bot",
+    "ai-companion",
+    "game-ai",
+    "semantic-layer"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "files": [
     "bin/",
     "src/",
@@ -47,7 +54,8 @@
   },
   "types": "./types/index.d.ts",
   "scripts": {
-    "test": "node --test test/*.test.mjs"
+    "test": "node --test test/*.test.mjs",
+    "prepublishOnly": "npm test"
   },
   "dependencies": {
     "mineflayer": "^4.37.1",
