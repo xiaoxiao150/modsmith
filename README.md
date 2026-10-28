@@ -1,12 +1,13 @@
 # modsmith
 
-> 让每个 mineflayer AI 完全学会玩一个 mod / Let every mineflayer AI fully learn to play a mod.
+> 让 AI 在任意模组服里真正生活 / the data layer for an AI companion that actually plays Minecraft.
 >
 > 它是 **AI 陪伴项目**的语义层：宿主（Cortico）是一个真玩家账号上的 AI，
 > modsmith 负责把她面前的任意模组变成可读的配方/站点/id 数据。
 > 方向与阶段见 [ROADMAP.md](ROADMAP.md)。
 
-把 Fabric 模组 jar 变成**任何 mineflayer 机器人能用的语义清单**。
+把 Fabric 模组 jar 变成**任何 mineflayer 机器人能用的语义清单**，并为 AI 陪伴场景补齐
+"看得见、做得出、放得下"所需要的那部分世界数据。
 
 Minecraft 机器人是原版协议客户端。它看不见模组方块、拿不到模组配方、也开不出模组界面——
 因为 1.21 起方块和物品是**静态注册表**，服务端从不下发，模组追加到哪个数字 id 取决于
@@ -14,41 +15,49 @@ Minecraft 机器人是原版协议客户端。它看不见模组方块、拿不�
 
 **English in one paragraph:** modsmith turns a Fabric mod jar into a semantic
 manifest (blocks, items, recipes, tags, crops) plus measured numeric registry
-ids that any mineflayer bot can consume. Minecraft bots speak the vanilla
-protocol and 1.21 registries are static — mod blocks and items never get
-downloaded, so their numeric ids depend on load order. modsmith recovers them
-from a live server you own (OP + RCON required) and keeps the mapping
-fingerprinted. Docs are Chinese-first; this README and `AGENTS.md` carry the
-full design notes.
+ids that any mineflayer bot can consume. It is the data layer for an AI
+companion that actually plays Minecraft: recipes, stations and measured ids
+instead of guesses. Minecraft bots speak the vanilla protocol and 1.21
+registries are static — mod blocks and items never get downloaded, so their
+numeric ids depend on load order. modsmith recovers them from a live server you
+own (OP + RCON required) and keeps the mapping fingerprinted. Docs are
+Chinese-first; this README and `AGENTS.md` carry the full design notes.
 
 ## 状态（0.6.2，AI 陪伴：生活 / 装饰 / 冒险）
 
-- **L1 完成**：单包接入（Farmer's Delight 3.3.6）从 jar 到机器人可用的清单与 ids，生产在用。
-- **P2 装饰（2026-10-28）**：Supplementaries 4.0.2 + Moonlight 3.7.2 实测接入
-  （237/271 方块、248/297 物品、306 条可用配方；缺的是未注册的兼容/技术方块，清单已按实测裁剪）。
-  宿主侧补了 `mc_modblocks`（按关键词查包内方块/物品）、`mc_scan`（房间实况：
-  方块计数/可站格/门）与 `place.face`（壁挂装饰）。真机验收：她自己扫房、选材，
-  在两间不同材质的房间里贴出 13 + 12 件装饰，并把暖/冷两套风格写进笔记。
-- **inspect 契约修复**：自定义序列化器把 `result` 写成字符串时，清单统一收成
-  `{id,count}`（否则宿主 `validate` 会整份拒收）；原版 tag 可从服务器 jar 的
-  `data/minecraft/tags/` 展开后并入 `candidates`，让 `minecraft:wooden_slabs`
-  这类原版 tag 配方装得进配方表。
-- **L2 基本完成**："换一个 mod 只要几条命令 + 审一张表"。暮色森林 4.8.629 实测：
-  2134 条配方全解析、17 个自定义序列化器自动发现，不需要 javap；农夫乐事端到端
-  `onboard` 通过（发现 → `--accept` → 修订单）。缺口：线上同形的语义拆分
-  （`i32`/`f32`、`string`/`varints`）仍需人按备选表拍板——协议本身丢了信息。
-- **L3 完成**：规则推断工作站（`learn --infer`，可用 `--evidence` 吃实测证据）、
-  `verify --stations` 三种机制都真执行（侧车 / 多原料两步 / 被动掉落）、侧车熟成任务
-  可跨断线/重启恢复、`probe --scan-blocks` 全量窗口扫描、单方块可服务多种配方类型、
-  `onboard` 七步一条龙。
-- **L4/L5 完成（0.5.0）**：宿主侧按清单执行三种站点机制（`cook` 读 place-and-wait 站点、
-  `cut` 支持多原料、`recipeTypes` 多类型）；真实 AI 在生存服里自主做出牛肉炖
-  （取料 → 砧板切牛肉 → 厨锅出餐），全程只靠清单数据。
+**数据层（本仓库）**
+
+- **已实测接入的包**：Farmer's Delight 3.3.6（131 方块 / 185 物品 / 1594 条可用配方）、
+  Supplementaries 4.0.2 + Moonlight 3.7.2（237/271 方块、248/297 物品、306 条可用配方）。
+  后者的 34 个缺失方块是服务器未注册的兼容/技术方块（cupric/ender/soul 变体等），
+  清单已按实测裁剪，不会把装不出来的东西列给机器人。
 - **多包共存**：捕获的配方是整服快照，`recipes --ids-all` 合并各包 ids（指纹闸拒绝
-  混用不同 jar 组合的量测）；宿主按配方 id 跨包去重、累积安装，不再只认第一个包。
-- **`learn --infer` 默认合并人工站点**：命令/机制一字不动，只补 `recipeType`/`toolSuffix`
-  并追加新站点；整段重推必须 `--force`。
-- **0.x 期间 manifest / sidesheet 格式可能发生破坏性变更**，会尽量在 README 里标注。
+  混用不同 jar 组合的量测）；宿主按配方 id 跨包去重、累积安装。
+- **配方发现**：自定义序列化器不用 javap——`recipes --discover` 用配方名切段找文法，
+  歧义全部列出、待审文件永不自动生效；暮色森林 4.8.629 实测 2134 条全解析。
+- **inspect 契约修复（0.6.2）**：自定义序列化器把 `result` 写成字符串时统一收成
+  `{id,count}`；原版 tag 可从服务器 jar 的 `data/minecraft/tags/` 展开并入
+  `candidates`（`minecraft:wooden_slabs` 等），原版 tag 配方才装得进配方表。
+- **L2/L3 能力保持**：`onboard` 七步、`learn --infer`（默认合并人工站点、整段重推要
+  `--force`）、`verify --stations` 三种机制真执行、侧车熟成可跨重启、`probe --scan-blocks`
+  全量窗口扫描。
+
+**宿主层（Cortico，不在本仓库）**
+
+- **P1 生活**：`mc_plan`（查步骤/缺料/现在能做的菜）、`mc_chest`（记得的容器）、
+  饥饿事实事件（叫醒她，不替她决定）、`command`（真玩家级 OP，含 tp，命令审计）、
+  `look`（看人/看坐标/抬头看天）；真机验收通过，她自己查料、决定吃/做/不做。
+- **P2 装饰**：`mc_modblocks`（按关键词查包内方块/物品）、`mc_scan`（房间实况：
+  方块计数/可站格/门）、`place.face`（壁挂装饰）。真机验收：她在两间不同材质的
+  5×5 房间里自己扫房、选材、贴出 **25 件装饰 + 两条横梁 + 两个遮阳篷**，并把
+  暖/冷两套风格写进笔记。
+- **P3 冒险**：TF 4.8.796 Fabric jar 已下载，下一步建独立 TF 服接包；实体/战利品表
+  读取是它当"冒险包"的前置缺口。
+- 完整阶段与依赖见 [ROADMAP.md](ROADMAP.md)。
+
+**兼容性说明**
+
+- 0.x 期间 manifest / sidesheet 格式可能发生破坏性变更，会尽量在 README 里标注。
 
 ## 前置条件
 
@@ -380,6 +389,10 @@ MODSMITH_REASONING_EFFORT  可选 low/high/max（端点不认就忽略）
 
 校验用 `src/validate.mjs`（和宿主侧 `mod-manifest.ts` 同一套规则）。
 
+契约之外的**动作**由宿主实现：怎么查配方（`mc_plan`）、怎么记箱子（`mc_chest`）、
+怎么扫房间（`mc_scan`）、怎么查包内装饰（`mc_modblocks`）、怎么贴墙（`place.face`）、
+怎么用 OP 命令（`command`）——都不是 modsmith 的职责；这里只保证数据是真的。
+
 ## 已知局限
 
 - **只支持 Fabric**。Forge/NeoForge 的 FML 握手是另一套协议，投入产出比差。
@@ -398,6 +411,11 @@ MODSMITH_REASONING_EFFORT  可选 low/high/max（端点不认就忽略）
 - 有些方块是为特定上下文注册的（饮料/果冻那类"要放在杯垫/架子上"的方块），
   `setblock` 摆下去会立刻变回空气。`probe`/`calibrate` 会如实记"放不下"，
   不会把它们混进可放置方块或容器表。
+- **清单不等于 jar 的静态资源列表**：未在服务器注册的兼容/技术方块（Supplementaries
+  的 cupric/ender/soul 变体、mob_jar 模型等 34 个）会被实测裁掉；不在清单里的东西，
+  机器人就是当它不存在。
+- **壁挂/多部分方块的摆放是宿主能力**：清单告诉你 id 与状态，但"贴在支撑块哪一面"
+  要靠宿主的 `place.face` 之类工具；没有这个能力时，装饰只能放地上。
 
 ## 开发
 
