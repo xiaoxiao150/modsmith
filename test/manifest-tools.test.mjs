@@ -2,7 +2,7 @@
 //   node --test test/
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { packNameOf } from '../src/inspect.mjs';
+import { packNameOf, resultRef } from '../src/inspect.mjs';
 import { applyProbe, stationMatches } from '../src/manifest-probe.mjs';
 import { validateManifest, hasErrors, statsOf } from '../src/validate.mjs';
 
@@ -256,4 +256,14 @@ test('isItemModelVariant：护甲 trim 与巨人方块 base/gui 模型不算物�
   for (const name of ['ironwood_chestplate', 'banister_item', 'giant_pickaxe', 'moonworm_queen', 'bowl']) {
     assert.equal(isItemModelVariant(name), false, `${name} 是真物品`);
   }
+});
+
+// ---------- 自定义序列化器的字符串产物 ----------
+
+test('resultRef：字符串产物收成 {id,count}，对象原样保留', () => {
+  assert.deepEqual(resultRef('supplementaries:bubble_blower'), {
+    id: 'supplementaries:bubble_blower', count: 1,
+  });
+  const obj = { id: 'minecraft:stick', count: 4 };
+  assert.equal(resultRef(obj), obj);
 });

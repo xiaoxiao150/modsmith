@@ -130,6 +130,14 @@ function dropsOf(loot) {
 }
 
 /**
+ * 配方产物归一：自定义序列化器有时把 result 写成物品 id 字符串。
+ * 清单契约是 `{id,count}`；字符串必须在这里收成对象，否则宿主会整份拒收。
+ */
+export function resultRef(raw) {
+  return typeof raw === 'string' ? { id: raw, count: 1 } : raw;
+}
+
+/**
  * 读一个 Fabric mod jar，产出 manifest 的静态部分。
  *
  * @param {string} jarPath
@@ -271,7 +279,12 @@ export function inspectJar(jarPath, opts = {}) {
       const t = raw.cost ?? raw.cookingtime ?? raw.cooking_time ?? raw.time ?? null;
       if (t !== null) rec.cooking_time = t;
     }
-    if (raw.result !== undefined && rec.result === undefined) rec.result = raw.result;
+    if (raw.result !== undefined && rec.result === undefined) {
+      // 有些自定义序列化器的 result 直接写物品 id 字符串（Supplementaries 的
+      // add_charges 等）。清单契约要 {id,count}，这里统一成对象，别把字符串写进清单——
+      // 宿主 validate 会整份拒收。
+      rec.result = resultRef(raw.result);
+    }
     recipes.push(rec);
   }
 
