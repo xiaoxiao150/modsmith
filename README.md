@@ -1,5 +1,6 @@
 # modsmith
 
+[![npm](https://img.shields.io/npm/v/modsmith)](https://www.npmjs.com/package/modsmith)
 [![release](https://img.shields.io/github/v/release/xiaoxiao150/modsmith)](https://github.com/xiaoxiao150/modsmith/releases)
 [![tests](https://github.com/xiaoxiao150/modsmith/actions/workflows/test.yml/badge.svg)](https://github.com/xiaoxiao150/modsmith/actions/workflows/test.yml)
 [![license](https://img.shields.io/github/license/xiaoxiao150/modsmith)](LICENSE)
@@ -37,7 +38,14 @@ data layer for an AI companion that actually plays modded Minecraft.
 
 ## 30 秒看到结果
 
-不需要服务器、不需要 npm install（`inspect` 只读 jar）：
+不需要服务器；`inspect` 只读 jar。已发布到 npm：
+
+```bash
+npm i -g modsmith          # 或者零安装：npx modsmith ...
+modsmith inspect path/to/mod.jar --out ./mods
+```
+
+不想装 npm 包也可以直接跑仓库：
 
 ```bash
 git clone --depth 1 https://github.com/xiaoxiao150/modsmith
@@ -46,8 +54,6 @@ node modsmith/bin/modsmith.mjs inspect path/to/mod.jar --out ./mods
 
 输出是 `mods/<pack>.json`：方块、物品、配方类型、tag、作物都在里面。要让它变成
 机器人真能用的数字 id，再按 [快速开始](#快速开始) 起一台自己的服务器跑 `calibrate`。
-
-> npm 包（`npx modsmith ...`）正在准备；发布前上面的 git 一行就是最短路径。
 
 ## 支持的包（实测，不是“理论上”）
 
@@ -109,6 +115,8 @@ calibrate / probe / verify 是在**你自己的服务器上动手**：`forceload
 是另一套协议，投入产出比差）。
 
 ## 四步
+
+先装：`npm i -g modsmith`（或每条命令前加 `npx`）。
 
 ```
 modsmith inspect  <mod.jar>           静态提取：方块/物品/配方/tag/中文名 + 推断作物
