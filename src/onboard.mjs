@@ -25,6 +25,7 @@
  *   resume?: boolean,         // 产物已存在的步骤标记 done（断点续跑）
  *   artifacts?: { manifest?: boolean, ids?: boolean, serverRecipes?: boolean },
  *   dryRecipes?: boolean,     // recipes 步骤不写回（默认写）
+ *   serializers?: string,     // 显式指定自定义序列化器 sidesheet（默认按 manifest.mod 找）
  *   noBuild?: boolean,        // sidecar 不编译
  *   dump?: string | null,     // registry dump JSON：有就替代 calibrate（秒级）
  * }} opts
@@ -33,7 +34,7 @@
 export function onboardPlan(opts) {
   const {
     jar, pack, modsDir = './mods', server = null, skip = [], resume = false,
-    artifacts = {}, dryRecipes = false, noBuild = false, dump = null,
+    artifacts = {}, dryRecipes = false, serializers = null, noBuild = false, dump = null,
   } = opts;
   const dir = modsDir.replace(/[\\/]+$/, '');
   const manifestPath = `${dir}/${pack}.json`;
@@ -99,6 +100,7 @@ export function onboardPlan(opts) {
       // --ids-all：同一台服上第二个包翻译时必然碰到别的包的物品（捕获是整服配方）。
       // 只有一份 ids 时它是空操作；多份时按指纹闸拒绝混用不同 jar 组合的量测。
       step('recipes', '服务端真配方翻进清单', ['recipes', manifestPath, '--ids', idsPath, '--ids-all', modsDir,
+        ...(serializers ? ['--serializers', serializers] : []),
         ...(srv.serverMods ? ['--server-mods', String(srv.serverMods)] : []),
         ...(dryRecipes ? [] : ['--write'])], Boolean(artifacts.serverRecipes), false),
       // 推断工作站：规则优先，不需要模型；有 probe 证据就用证据。

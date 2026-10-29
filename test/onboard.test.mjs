@@ -64,6 +64,15 @@ test('--dry-recipes 与 --no-build 的传参', () => {
   assert.ok(plan.steps.find((s) => s.id === 'sidecar').argv.includes('--no-build'));
 });
 
+test('--serializers 原样转给 recipes（sidesheet 文件名与 mod id 不同时用得上）', () => {
+  const path = './sidesheets/farmers-delight-3.3.6.serializers.json';
+  const plan = onboardPlan({ jar: 'x.jar', pack: 'tiny-mod', server: SRV, serializers: path });
+  const argv = plan.steps.find((s) => s.id === 'recipes').argv;
+  const i = argv.indexOf('--serializers');
+  assert.ok(i >= 0, argv.join(' '));
+  assert.equal(argv[i + 1], path);
+});
+
 test('CLI --plan 冒烟：不执行、退出 0、打印步骤', () => {
   const r = spawnSync(process.execPath, [BIN, 'onboard', FIXTURE, '--pack', 'tiny-mod', '--plan'], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);

@@ -13,6 +13,8 @@
 import mineflayer from 'mineflayer';
 import { Vec3 } from 'vec3';
 import { readManifest } from './manifest-io.mjs';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { installModRegistry, MEASURE_DROPS, installMineflayerFixes, loadModPack, setModsDir } from './cortico-bridge.mjs';
 import { applyProbe, stationMatches } from './manifest-probe.mjs';
 import { checkServerMods } from './server-fingerprint.mjs';
@@ -96,6 +98,12 @@ export async function openProbeSession(opts) {
   await cmd(`fill ${bx - 6} ${by - 1} ${bz - 6} ${bx + 6} ${by - 1} ${bz + 6} minecraft:stone`);
   await cmd(`fill ${bx - 6} ${by} ${bz - 6} ${bx + 6} ${by + 4} ${bz + 6} minecraft:air`);
   await new Promise((res, rej) => { bot.once('spawn', res); bot.once('error', rej); });
+  // probe 也是登录时收到 declare_recipes；顺手把它留给 recipes 步骤。
+  // 没有这一步，dump 接入的包在 onboard 跑到 recipes 时只能报“找不到捕获文件”。
+  if (pack && bot._modsmithDeclareRecipes) {
+    const dir = typeof opts.modsDir === 'string' ? opts.modsDir : 'mods';
+    writeFileSync(join(dir, `${opts.pack}-recipes.raw.bin`), bot._modsmithDeclareRecipes);
+  }
   await cmd(`tp ${username} ${bx + 0.5} ${by} ${bz + 0.5}`);
   await sleep(2500);
 
@@ -161,6 +169,7 @@ export async function openProbeSession(opts) {
     try { await cmd(`forceload remove ${bx - 8} ${bz - 8} ${bx + 8} ${bz + 8}`); } catch { /* */ }
     await sleep(200);
     try { bot.quit(); } catch { /* */ }
+    cmd.close();
   };
 
   return { probeOne, probeStations, close, bot, cmd };

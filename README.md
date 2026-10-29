@@ -95,12 +95,19 @@ node modsmith/bin/modsmith.mjs inspect path/to/mod.jar --out ./mods
 带服务器指纹，只对压缩包内 `SERVER-MODS.md` 那套完全相同的 mod 组合有效——
 换了 jar 请重新 dump/calibrate，不要混用。
 
-## 状态（0.7.0，AI 陪伴：生活 / 装饰 / 冒险）
+## 状态（0.7.1，AI 陪伴：生活 / 装饰 / 冒险）
 
-> 发布说明：npm registry 上的最新包仍是 **0.6.2**；0.7.0 目前以本仓库 / GitHub
+> 发布说明：npm registry 上的最新包仍是 **0.6.2**；0.7.1 目前以本仓库 / GitHub
 > release 为准（npm 发布账号还在安全暂停期）。不想等可以 `git clone` 后直接跑
 > `node bin/modsmith.mjs`。
 
+- **0.7.1（live 采样与形状索引修正）**：`conformance --live` 增加 RCON 写世界采样
+  （setblock 后等真实 `stateId` 再读 `shapes`，含上下两态对照），dev 服 FD 实测
+  40/9/0，报告在 [docs/conformance](docs/conformance/README.md)。采样抓出并修复
+  `templateShapeId` 的 P0：状态索引应按**最后一个属性最快**变化，原实现反了，导致
+  台阶 top/bottom 形状互换（楼梯同理）；`block-shapes.test.mjs` 已钉住。
+  `onboard` 支持 `--serializers` 显式指 sidesheet；RCON socket 现在会 `close()`，
+  `onboard` 九步跑完后进程不再挂住。
 - **0.7.0（接包验收）**：新增 `modsmith conformance`（manifest/ids/registry 三层离线
   检查）与只读 `--live` 参考消费；`onboard` 9 步里有两道早停。四包实测 0 fail，
   报告在 [docs/conformance](docs/conformance/README.md)。碰撞/作物/实体规则收敛到

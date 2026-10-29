@@ -69,6 +69,10 @@
   - `sidecar --no-build` 不许改清单
   - `inspect` 给了 `--pack` 不许提示"已有同名 mod"（会指回自己刚写的）
   - 去重与嫌疑判据的形状（`test/calibrate-core.test.mjs`：块内重复、放置 id 优先认领）
+  - 模板 state 索引**最后一个属性最快变化**（`test/block-shapes.test.mjs`：
+    按第一个属性最快算会让台阶上下形状互换；形状非空所以只查非空的检查发现不了）
+  - 串多步的 CLI 不会自己退出（`test/rcon.test.mjs`：RCON socket 必须能 `close()`；
+    onboard 走完 probe + verify 后曾挂住 20 分钟）
 - 判据写进日志/回执里时要能对上：报告的数字必须是**实际用到的那个数**
   （例如状态数按去重后累加，不按测量条数）。
 - **多包共用一个服务器时**：捕获的 `declare_recipes` 是整服快照，每份清单都会含别的包

@@ -1,0 +1,321 @@
+{
+ "pack": "farmersdelight",
+ "summary": {
+  "pass": 40,
+  "warn": 9,
+  "fail": 0,
+  "total": 49
+ },
+ "checks": [
+  {
+   "id": "M1",
+   "level": "pass",
+   "subject": "manifest",
+   "message": "schema/validate 通过"
+  },
+  {
+   "id": "M1.warn",
+   "level": "warn",
+   "subject": "prompt",
+   "message": "没有 prompt：提示词里只会写「装了 X」"
+  },
+  {
+   "id": "M5",
+   "level": "warn",
+   "subject": "onions",
+   "message": "seed farmersdelight:onions 不在 items 里"
+  },
+  {
+   "id": "M5",
+   "level": "warn",
+   "subject": "cabbages",
+   "message": "seed farmersdelight:cabbages 不在 items 里"
+  },
+  {
+   "id": "M5",
+   "level": "warn",
+   "subject": "tomatoes",
+   "message": "seed farmersdelight:tomatoes 不在 items 里"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "farmersdelight:cutting",
+   "message": "111 条自定义配方没有统一 result，配方视图不会消费（首条 farmersdelight:cutting/beef）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "smithing_trim",
+   "message": "19 条自定义配方没有统一 result，配方视图不会消费（首条 minecraft:sentry_armor_trim_smithing_template_smithing_trim）"
+  },
+  {
+   "id": "M6",
+   "level": "pass",
+   "subject": "recipes",
+   "message": "craftRecipeViews 1267 条"
+  },
+  {
+   "id": "I1",
+   "level": "warn",
+   "subject": "farmersdelight:mug",
+   "message": "manifest 声明了但服务器没有注册这个物品（兼容/技术物品，通常按实测裁剪）"
+  },
+  {
+   "id": "I1",
+   "level": "warn",
+   "subject": "farmersdelight:skillet_cooking",
+   "message": "manifest 声明了但服务器没有注册这个物品（兼容/技术物品，通常按实测裁剪）"
+  },
+  {
+   "id": "I5",
+   "level": "pass",
+   "subject": "server-mods",
+   "message": "服务器 mods 指纹对得上（5 个文件）"
+  },
+  {
+   "id": "I6",
+   "level": "warn",
+   "subject": "ids",
+   "message": "2 项在导入时被剔除（见 ids.failed）"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:beetroot_crate",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:budding_tomatoes",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:cabbage_crate",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:cabbages",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:carrot_crate",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:onion_crate",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:onions",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:potato_crate",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:pumpkin_pie",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:rice",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:rice_bag",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:rice_bale",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:rice_panicles",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:rice_roll_medley_block",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:stuffed_pumpkin_block",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:sweet_berry_cheesecake",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:tomato_crate",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:tomatoes",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:tomatoes_on_rope",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:wild_beetroots",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:wild_cabbages",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:wild_carrots",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:wild_onions",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:wild_potatoes",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:wild_rice",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:wild_tomatoes",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R6",
+   "level": "pass",
+   "subject": "recipes",
+   "message": "1267 条可消费配方"
+  },
+  {
+   "id": "R7",
+   "level": "pass",
+   "subject": "entities",
+   "message": "1 个实体已注入"
+  },
+  {
+   "id": "L2",
+   "level": "pass",
+   "subject": "farmersdelight:acacia_cabinet",
+   "message": "solid full block：已放置，shape 1"
+  },
+  {
+   "id": "L2",
+   "level": "pass",
+   "subject": "farmersdelight:apple_pie",
+   "message": "solid full block：已放置，shape 1"
+  },
+  {
+   "id": "L2",
+   "level": "pass",
+   "subject": "farmersdelight:bamboo_basket",
+   "message": "solid full block：已放置，shape 1"
+  },
+  {
+   "id": "L2",
+   "level": "pass",
+   "subject": "farmersdelight:bamboo_cabinet",
+   "message": "solid full block：已放置，shape 1"
+  },
+  {
+   "id": "L2",
+   "level": "pass",
+   "subject": "farmersdelight:beetroot_crate",
+   "message": "solid full block：已放置，shape 1"
+  },
+  {
+   "id": "L2",
+   "level": "pass",
+   "subject": "farmersdelight:birch_cabinet",
+   "message": "solid full block：已放置，shape 1"
+  },
+  {
+   "id": "L2",
+   "level": "pass",
+   "subject": "farmersdelight:budding_tomatoes",
+   "message": "solid full block：已放置，shape 1"
+  },
+  {
+   "id": "L2",
+   "level": "pass",
+   "subject": "farmersdelight:cabbage_crate",
+   "message": "solid full block：已放置，shape 1"
+  },
+  {
+   "id": "L3",
+   "level": "pass",
+   "subject": "farmersdelight:rotten_tomato",
+   "message": "召唤后 bot.entities 认得出名字"
+  }
+ ],
+ "live": {
+  "username": "ModConformDev",
+  "version": "1.21.1",
+  "dimension": "overworld",
+  "position": {
+   "x": 401,
+   "y": 60,
+   "z": 401
+  }
+ },
+ "registry": {
+  "blocks": 132,
+  "states": 2548,
+  "items": 185,
+  "entities": 1
+ }
+}

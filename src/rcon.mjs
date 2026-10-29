@@ -49,15 +49,21 @@ export function makeRcon(host, port, password) {
     s.on('close', () => fail(new Error('RCON 连接断了')));
     s.on('connect', () => {
       send(3, password);
-      waiters.push(() => resolve((cmd) => new Promise((res, rej) => {
-        const timer = setTimeout(() => rej(new Error(`RCON 命令 15s 无响应：${cmd.slice(0, 60)}`)), 15000);
-        send(2, cmd);
-        waiters.push((value, err) => {
-          clearTimeout(timer);
-          if (err) rej(err);
-          else res(value);
+      waiters.push(() => {
+        const api = (cmd) => new Promise((res, rej) => {
+          const timer = setTimeout(() => rej(new Error(`RCON 命令 15s 无响应：${cmd.slice(0, 60)}`)), 15000);
+          send(2, cmd);
+          waiters.push((value, err) => {
+            clearTimeout(timer);
+            if (err) rej(err);
+            else res(value);
+          });
         });
-      })));
+        // CLI 一个进程会串好几步（onboard）：socket 不关，事件循环就一直挂着，
+        // 所有步骤完成后进程也不退出（实测）。
+        api.close = () => { try { s.end(); } catch { /* 已经断开 */ } };
+        resolve(api);
+      });
     });
   });
 }

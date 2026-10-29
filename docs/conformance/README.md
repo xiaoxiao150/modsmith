@@ -31,3 +31,32 @@ modsmith conformance mods/twilightforest-1.21.1-4.8.796.json \
 
 2026-10-29 实跑结果：`通过 73，警告 13，失败 0`；`ModConform @ 1.21.1 overworld`，
 注册表 523 方块 / 80 实体。
+
+### 写世界采样（RCON，仅测试服）
+
+`--rcon-password` 给了才启用：在 `--x/--y/--z` 附近 forceload、setblock、tp，读真实
+bot 的 `blockAt().shapes`，再还原空气。它补的是离线注入检查看不到的那一层——
+“注册表里形状非空”不等于“客户端真的按这个状态显示”。
+
+```bash
+modsmith conformance mods/<pack>.json --ids mods/<pack>-ids.json \
+  --server-mods mods --live --port 25566 \
+  --rcon-port 25576 --rcon-password <pw> --x 400 --y 100 --z 400
+```
+
+dev 服（FD 3.3.6，2026-10-29）实跑：`通过 40，警告 9，失败 0`，报告见
+[farmers-delight-dev-live.json](farmers-delight-dev-live.json)。采样覆盖 7 个整块 +
+1 个实体（FD 没有楼梯/台阶）。
+
+同一套采样在 Supplementaries dev 包上验证了上下两态（报告未归档，因为该包没有走
+完整 onboard，未注册方块会正常报 R1 fail）：
+
+- `ash_bricks_stairs`：stairs bottom / top 各 `shape 2`，两态形状不同
+- `ash_bricks_slab`：slab bottom / top 各 `shape 1`，两态形状不同
+- 采样会先等 `blockAt().stateId` 进入 `ids` 里对应 `half` / `type` 的集合再读 shape；
+  只等固定 250ms 会把上一态读成当前态，误报“上下相同”
+
+这次采样抓到一个真实的 P0：`templateShapeId` 把状态索引算成了“第一个属性最快变化”，
+而 registry 实际是**最后一个属性最快**。结果 `oak_slab` 的 top 拿到下半砖形状、bottom
+拿到上半砖形状（楼梯同理），且 shape 非空，所有只查非空的检查都放过了。已修复并有
+`test/block-shapes.test.mjs` 的索引顺序回归。

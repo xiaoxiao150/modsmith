@@ -44,3 +44,23 @@ test('楼梯/台阶按名字找同族模板；作物/花不找工具', () => {
   assert.equal(isDiggable('farmersdelight:onions'), true);
   assert.equal(isDiggable('minecraft:water'), false);
 });
+
+test('模板状态索引按最后一个属性最快变化（否则台阶上下形状互换）', () => {
+  // 与 prismarine-registry 的 oak_slab 同形：type 是慢维、waterlogged 是快维。
+  const reg = {
+    blocksByName: {
+      oak_slab: {
+        states: [
+          { name: 'type', type: 'enum', num_values: 3, values: ['top', 'bottom', 'double'] },
+          { name: 'waterlogged', type: 'bool', num_values: 2 },
+        ],
+      },
+    },
+    blockCollisionShapes: { blocks: { oak_slab: [773, 773, 774, 774, 1, 1] } },
+  };
+  assert.equal(templateShapeId(reg, 'oak_slab', { type: 'top', waterlogged: 'true' }), 773);
+  assert.equal(templateShapeId(reg, 'oak_slab', { type: 'top', waterlogged: 'false' }), 773);
+  assert.equal(templateShapeId(reg, 'oak_slab', { type: 'bottom', waterlogged: 'true' }), 774);
+  assert.equal(templateShapeId(reg, 'oak_slab', { type: 'bottom', waterlogged: 'false' }), 774);
+  assert.equal(templateShapeId(reg, 'oak_slab', { type: 'double', waterlogged: 'false' }), 1);
+});

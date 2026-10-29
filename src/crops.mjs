@@ -78,9 +78,19 @@ export function inferCrops({ blocks, items = {}, namespace, recipes, sidecar = {
       return base.length >= 3 && short.includes(base) && c !== short;
     });
     if (aliasOwner) {
-      const list = crops[aliasOwner].aliases ?? [];
+      const spec = blocks[`${namespace}:${short}`];
+      const drops = spec?.drops ?? [];
+      const owner = crops[aliasOwner];
+      const seedOnly = drops.length > 0 && drops.every((d) => d === owner.seed || /(^|_)seeds?$/.test(d));
+      if (seedOnly && ages.max !== owner.max_age) {
+        // budding_tomatoes 这类长苗块只掉种子，不是成熟收获形态；并进 tomatoes
+        // 会让 collect tomatoes 把苗当熟果拔掉。留在地里，不独立成作物也不当 alias。
+        notes.push(`${short}: 长苗阶段（只掉种子，age ${ages.max} vs ${owner.max_age}），不当别名`);
+        continue;
+      }
+      const list = owner.aliases ?? [];
       if (!list.includes(short)) {
-        crops[aliasOwner].aliases = [...list, short];
+        owner.aliases = [...list, short];
         notes.push(`${short}: 当 ${aliasOwner} 的别名（推断）`);
       }
       continue;
@@ -145,15 +155,24 @@ export function inferCrops({ blocks, items = {}, namespace, recipes, sidecar = {
     const short = full.slice(namespace.length + 1);
     if (crops[short] || dropped.has(short)) continue;
     if (NOT_CROP.test(short)) continue;
-    if (agesOf(spec.states) === null) continue;
+    const ages = agesOf(spec.states);
+    if (ages === null) continue;
     const owner = Object.keys(crops).find((c) => {
       const base = stripPlural(c);
       return base.length >= 3 && short.includes(base) && c !== short;
     });
     if (!owner) continue;
-    const list = crops[owner].aliases ?? [];
+    const blockSpec = blocks[`${namespace}:${short}`];
+    const drops = blockSpec?.drops ?? [];
+    const crop = crops[owner];
+    const seedOnly = drops.length > 0 && drops.every((d) => d === crop.seed || /(^|_)seeds?$/.test(d));
+    if (seedOnly && ages.max !== crop.max_age) {
+      notes.push(`${short}: 长苗阶段（只掉种子，age ${ages.max} vs ${crop.max_age}），不当别名`);
+      continue;
+    }
+    const list = crop.aliases ?? [];
     if (!list.includes(short)) {
-      crops[owner].aliases = [...list, short];
+      crop.aliases = [...list, short];
       notes.push(`${short}: 当 ${owner} 的别名`);
     }
   }

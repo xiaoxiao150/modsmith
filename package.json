@@ -1,6 +1,6 @@
 {
   "name": "modsmith",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Turn Fabric mod jars into semantic manifests + measured registry ids for mineflayer AI companions.",
   "type": "module",
   "license": "MIT",

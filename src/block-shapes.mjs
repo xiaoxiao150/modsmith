@@ -142,8 +142,11 @@ export function templateShapeId(reg, templateName, props) {
   const tpl = reg.blocksByName?.[templateName];
   const ids = reg.blockCollisionShapes?.blocks?.[templateName];
   if (!Array.isArray(tpl?.states) || !Array.isArray(ids)) return null;
+  // 状态索引是**最后一个属性最快变化**（与 registry 的 stateId 顺序一致）：
+  // index = ((type * 2) + waterlogged)，不是 waterlogged * 3 + type。
+  // 之前按第一个属性最快算，oak_slab 的 top 拿到了下半砖形状、bottom 拿到上半砖形状
+  // （楼梯同理）——形状非空，所以只查"非空"的检查全放过了它。
   let index = 0;
-  let stride = 1;
   for (const desc of tpl.states) {
     const raw = props?.[desc.name];
     let value;
@@ -157,8 +160,7 @@ export function templateShapeId(reg, templateName, props) {
       value = Number(raw);
       if (!Number.isInteger(value) || value < 0 || value >= desc.num_values) return null;
     }
-    index += value * stride;
-    stride *= desc.num_values;
+    index = index * desc.num_values + value;
   }
   return ids[index] ?? null;
 }

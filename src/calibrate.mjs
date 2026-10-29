@@ -126,6 +126,7 @@ export default async function cmdCalibrate(args, io) {
     try { await cmd(`setblock ${bx} ${by} ${bz} minecraft:air`); } catch { /* */ }
     try { await cmd(`forceload remove ${bx - 16} ${bz - 16} ${bx + 16} ${bz + 16}`); } catch { /* */ }
     try { bot?.quit(); } catch { /* */ }
+    cmd.close();
   };
 
   try {

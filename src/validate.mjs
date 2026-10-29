@@ -178,13 +178,21 @@ export function validateManifest(raw) {
       if (t === 'crafting_shapeless' && !Array.isArray(r.ingredients)) {
         err(`${at}.ingredients`, 'crafting_shapeless 配方要有 ingredients 数组');
       }
-      // result 允许多产物数组与 null（旧形状）；单产物必须是 {id, count?}
+      // 原版有明确产物形状的类型才强制 result.id；自定义序列化器（immersiveengineering:crusher
+      // 之类的 basePredicate、twilightforest 的自定义 result）可以有别的形状。
+      const RESULT_REQUIRED = new Set([
+        'crafting_shaped', 'crafting_shapeless',
+        'smelting', 'blasting', 'smoking', 'campfire_cooking',
+        'stonecutting', 'smithing_transform',
+      ]);
       if (r.result !== undefined && r.result !== null && !Array.isArray(r.result)) {
-        if (!isObject(r.result) || typeof r.result.id !== 'string') {
-          err(`${at}.result`, 'result 要带 id');
-        } else if (r.result.count !== undefined
-          && (!Number.isInteger(r.result.count) || r.result.count < 1)) {
-          err(`${at}.result.count`, 'result.count 要是正整数');
+        if (RESULT_REQUIRED.has(t)) {
+          if (!isObject(r.result) || typeof r.result.id !== 'string') {
+            err(`${at}.result`, 'result 要带 id');
+          } else if (r.result.count !== undefined
+            && (!Number.isInteger(r.result.count) || r.result.count < 1)) {
+            err(`${at}.result.count`, 'result.count 要是正整数');
+          }
         }
       }
     });

@@ -152,12 +152,12 @@ export function checkIds(manifest, ids, opts = {}) {
 
   const declaredBlocks = new Set(Object.keys(manifest.blocks ?? {}));
   const gotBlocks = new Set(Object.keys(ids.blocks ?? {}));
-  for (const name of declaredBlocks) if (!gotBlocks.has(name)) check(checks, 'I1', 'fail', name, 'manifest 声明了但 ids 没有');
+  for (const name of declaredBlocks) if (!gotBlocks.has(name)) check(checks, 'I1', 'warn', name, 'manifest 声明了但服务器没有注册（兼容/技术方块，通常按实测裁剪）');
   for (const name of gotBlocks) if (!declaredBlocks.has(name)) check(checks, 'I1', 'warn', name, 'ids 有但 manifest 没声明');
 
   const declaredItems = new Set(Object.keys(manifest.items ?? {}));
   const gotItems = new Set(Object.keys(ids.items ?? {}));
-  for (const name of declaredItems) if (!gotItems.has(name)) check(checks, 'I1', 'fail', name, 'manifest 声明了但 ids 没有 item id');
+  for (const name of declaredItems) if (!gotItems.has(name)) check(checks, 'I1', 'warn', name, 'manifest 声明了但服务器没有注册这个物品（兼容/技术物品，通常按实测裁剪）');
 
   const stateOwner = new Map();
   const ranges = [];

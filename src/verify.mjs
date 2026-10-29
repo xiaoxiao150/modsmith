@@ -444,6 +444,7 @@ export default async function cmdVerify(args, io) {
   await cmd(`forceload remove ${bx - 8} ${bz - 8} ${bx + 8} ${bz + 8}`);
   await sleep(300);
   bot.quit();
+  cmd.close();
 
   const failed = results.filter((r) => !r.ok);
   console.error(`\n=== verify ${manifest.mod} ===`);

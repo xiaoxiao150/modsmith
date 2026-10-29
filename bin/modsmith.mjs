@@ -60,6 +60,9 @@ const USAGE = `modsmith ${VERSION} — 把 Fabric mod jar 变成机器人能用�
       --manifest-only         只查清单，不查 ids/registry
       --live                  连服务器，用真实 mineflayer bot 只读消费一遍
                               （--host/--port/--username；不 setblock、不聊天）
+      --rcon-port <port>      --live 的写世界抽样（setblock/召唤/清理）用的 RCON
+      --rcon-password <pw>    给了才做写世界抽样；只应在专用测试服使用
+      --x/--y/--z <n>         抽样测试格，默认 400/100/400
       --strict                warning 也算失败
 
   modsmith calibrate <manifest.json> [选项]
@@ -132,6 +135,7 @@ const USAGE = `modsmith ${VERSION} — 把 Fabric mod jar 变成机器人能用�
       --skip <id,id,…>       显式跳过某些步骤（inspect/ids/calibrate/probe/verify/recipes/sidecar）
       --plan                 只打印步骤清单，不执行
       --dry-recipes          recipes 步骤不写回 manifest（默认写，95% 闸门兜底）
+      --serializers <file>   recipes 用的自定义序列化器 sidesheet（默认按 manifest.mod 找）
       --no-build             sidecar 只出配置不编译（也就不写回命令）
       其余 --host/--port/--rcon-port/--rcon-password/--server-mods/--mc-version/--x/y/z
       与 calibrate 相同，转给需要服务器的步骤。注意：dump 只替代 id 测量，
@@ -387,6 +391,7 @@ async function cmdOnboard(args) {
       serverRecipes: hasServerRecipes,
     },
     dryRecipes: args['dry-recipes'] === true,
+    serializers: typeof args.serializers === 'string' ? resolve(args.serializers) : null,
     noBuild: args['no-build'] === true,
   });
 
@@ -449,6 +454,16 @@ async function cmdConformance(args) {
         port: Number(args.port ?? 25565),
         username: typeof args.username === 'string' ? args.username : 'ModConform',
         version: mcv,
+        rcon: typeof args['rcon-password'] === 'string'
+          ? {
+            host: typeof args.host === 'string' ? args.host : '127.0.0.1',
+            port: Number(args['rcon-port'] ?? 25575),
+            password: args['rcon-password'],
+            x: Number(args.x ?? 400),
+            y: Number(args.y ?? 100),
+            z: Number(args.z ?? 400),
+          }
+          : null,
       });
       report.live = live.bot;
       report.registry = live.counts;
