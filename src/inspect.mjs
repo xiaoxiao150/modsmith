@@ -188,6 +188,9 @@ export function inspectJar(jarPath, opts = {}) {
       } else if (k.startsWith('item.' + namespace + '.')) {
         const short = k.slice(('item.' + namespace + '.').length);
         (names[`item.${short}`] ??= {})[key] = v;
+      } else if (k.startsWith('entity.' + namespace + '.')) {
+        const short = k.slice(('entity.' + namespace + '.').length);
+        (names[`entity.${short}`] ??= {})[key] = v;
       }
     }
   }
@@ -327,6 +330,37 @@ export function inspectJar(jarPath, opts = {}) {
   Object.assign(candidates, filled.resolved);
   const unresolvedTags = filled.stillMissing;
 
+  // ---- 实体类型 tag（只取 bosses：别的实体语义暂不进清单） ----
+  const entityTagmap = new Map();
+  for (const n of zip.names('data/')) {
+    const m = /^data\/([^/]+)\/tags\/(?:entity_type|entities)\/(.+)\.json$/.exec(n);
+    if (!m) continue;
+    const json = zip.readJson(n);
+    if (!json) continue;
+    const values = [];
+    for (const v of json.values ?? []) {
+      if (typeof v === 'string') values.push(v);
+      else if (v && typeof v.id === 'string') values.push(v.id);
+    }
+    entityTagmap.set(`${m[1]}:${m[2]}`, values);
+  }
+  const expandEntityTag = (tag, seen = new Set()) => {
+    const key = String(tag).replace(/^#/, '');
+    if (seen.has(key)) return [];
+    seen.add(key);
+    const out = [];
+    for (const v of entityTagmap.get(key) ?? []) {
+      if (v.startsWith('#')) out.push(...expandEntityTag(v, seen));
+      else out.push(v);
+    }
+    return out;
+  };
+  const bossTag = entityTagmap.has(`${namespace}:bosses`) ? `${namespace}:bosses`
+    : entityTagmap.has('c:bosses') ? 'c:bosses' : null;
+  const bosses = bossTag
+    ? [...new Set(expandEntityTag(bossTag))].filter((v) => v.includes(':'))
+    : [];
+
   // ---- 可食用物品 ----
   const foods = collectFoods(tagmap, expandTag, namespace);
 
@@ -348,6 +382,8 @@ export function inspectJar(jarPath, opts = {}) {
     recipes,
     names,
     containers: containerList,
+    // 实体 tag 里的 bosses（目前只认这个 tag；没有就不写字段）
+    ...(bosses.length > 0 ? { bosses } : {}),
     // 配方里的 tag 在**生成时**就展开成具体物品：运行时不再靠启发式猜
     // （漏了这一行的话，重新生成的清单会丢掉所有 tag，配方大批变成"做不了"）
     candidates,

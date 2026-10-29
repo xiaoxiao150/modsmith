@@ -9,6 +9,8 @@ import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.SharedConstants;
 import net.minecraft.block.Block;
 import net.minecraft.block.BlockState;
+import net.minecraft.entity.EntityDimensions;
+import net.minecraft.entity.EntityType;
 import net.minecraft.item.Item;
 import net.minecraft.registry.Registries;
 import net.minecraft.state.property.Property;
@@ -47,7 +49,7 @@ public class RegistryDumpMod implements ModInitializer {
         root.addProperty("schema", 1);
         root.addProperty("minecraftVersion", SharedConstants.getGameVersion().getName());
         root.addProperty("dumpMod", "modsmith-dump");
-        root.addProperty("dumpModVersion", "0.1.0");
+        root.addProperty("dumpModVersion", "0.1.2");
 
         JsonObject blocks = new JsonObject();
         for (Block block : Registries.BLOCK) {
@@ -73,6 +75,21 @@ public class RegistryDumpMod implements ModInitializer {
             items.addProperty(itemId.toString(), Registries.ITEM.getRawId(item));
         }
         root.add("items", items);
+
+        // 实体：名字 → 数字 id + 碰撞箱 + 生成组（monster/creature/...）。
+        // 机器人按数字 id 认实体；没有这张表，模组 boss 在她眼里叫 unknown。
+        JsonObject entities = new JsonObject();
+        for (EntityType<?> type : Registries.ENTITY_TYPE) {
+            Identifier typeId = Registries.ENTITY_TYPE.getId(type);
+            EntityDimensions dims = type.getDimensions();
+            JsonObject entry = new JsonObject();
+            entry.addProperty("id", Registries.ENTITY_TYPE.getRawId(type));
+            entry.addProperty("spawnGroup", type.getSpawnGroup().getName());
+            entry.addProperty("width", dims.width());
+            entry.addProperty("height", dims.height());
+            entities.add(typeId.toString(), entry);
+        }
+        root.add("entities", entities);
 
         Path out = FabricLoader.getInstance().getConfigDir().resolve("modsmith-dump.json");
         Files.writeString(out, new GsonBuilder().setPrettyPrinting().create().toJson(root));

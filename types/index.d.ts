@@ -8,6 +8,8 @@ export interface RegistryCounts {
   blocks: number;
   states: number;
   items: number;
+  /** 模组实体（registry-dump 0.1.2+ 的 entities；老 ids 为 0） */
+  entities: number;
 }
 
 export interface ModPackLike {

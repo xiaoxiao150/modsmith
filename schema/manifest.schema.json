@@ -142,6 +142,13 @@
       "type": "object",
       "description": "最近一次实测的审计痕迹（由 probe / learn 写入）。",
       "additionalProperties": true
+    },
+    "bosses": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "实体 tag 里声明的 boss 实体 id（如 twilightforest:naga）"
     }
   },
   "definitions": {

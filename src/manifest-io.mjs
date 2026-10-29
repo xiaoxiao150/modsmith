@@ -8,7 +8,7 @@ import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 /** 写 manifest；键顺序固定，diff 才好看。 */
-const ORDER = ['mod', 'version', 'namespace', 'source', 'blocks', 'items', 'foods', 'crops',
+const ORDER = ['mod', 'version', 'namespace', 'source', 'blocks', 'items', 'foods', 'bosses', 'crops',
   'recipes', 'names', 'containers', 'stations', 'prompt', 'candidates', 'unsupported'];
 
 export function writeManifest(file, manifest) {

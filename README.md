@@ -34,9 +34,13 @@ for an AI companion that actually plays modded Minecraft.
 | 覆盖 | 清单声明的状态子集 | 服务端注册表的全部状态 |
 | 风险 | 区块失新/残留读数，靠自检兜底 | 注册表真值；只读、不注册内容 |
 
-jar 已经**内置在 modsmith 里**：`templates/registry-dump/modsmith-dump-0.1.0.jar`；
+jar 已经**内置在 modsmith 里**：`templates/registry-dump/modsmith-dump-0.1.2.jar`；
 `modsmith dump-jar` 直接打印路径，`onboard` 会自动找 `config/modsmith-dump.json`。
 仍然不会自动安装——装/删由人决定，因为那是改用户的服务器，不是改本地文件。
+
+dump 不只量 id：0.1.2 起同时导出实体注册表（名字、数字 id、生成组、碰撞箱）。
+没有这张表，暮色森林的 boss 在机器人眼里一律叫 `unknown`——她被娜迦打死了，
+战斗日志里连对手的名字都没有。
 
 dump 只替代 **id 测量**：`probe` / `verify` / `recipes` / `learn` 照样要跑。
 
@@ -81,7 +85,7 @@ node modsmith/bin/modsmith.mjs inspect path/to/mod.jar --out ./mods
 | Farmer's Delight 3.3.6 | 1.21.1 / Fabric API | 131/131 方块、185/185 物品、1594 条可用配方 | 生产在用；站点 `cutting_board`/`cooking_pot` 已验证 |
 | More Delight 26.04.30 | 1.21.1 / FD | 0 方块、37/38 物品、51 条配方 | 农夫乐事扩展；纯物品/配方 |
 | Supplementaries 4.0.2 | 1.21.1 / Moonlight 3.7.2 | 237/237 方块、248/248 物品、306 条可用配方 | 装饰验收：两间 5×5 房间、25 件装饰 |
-| Twilight Forest 4.8.796 | 1.21.1 / Fabric API | 523/523 方块、660/718 物品、540 条配方、17255 状态 | 已接入；维度传送/实体/战利品待验 |
+| Twilight Forest 4.8.796 | 1.21.1 / Fabric API | 523/523 方块、660/718 物品、540 条配方、17255 状态 | 生产在用；9 个 boss 与实体名已进清单，维度传送待验 |
 
 缺失的方块/物品不是“漏了”，是服务器没注册的兼容/技术变体；清单按实测裁剪，
 不会把装不出来的东西列给机器人。
@@ -91,8 +95,13 @@ node modsmith/bin/modsmith.mjs inspect path/to/mod.jar --out ./mods
 带服务器指纹，只对压缩包内 `SERVER-MODS.md` 那套完全相同的 mod 组合有效——
 换了 jar 请重新 dump/calibrate，不要混用。
 
-## 状态（0.6.3，AI 陪伴：生活 / 装饰 / 冒险）
+## 状态（0.6.4，AI 陪伴：生活 / 装饰 / 冒险）
 
+- **0.6.4（实体与 boss 可读）**：registry-dump 0.1.2 导出 `ENTITY_TYPE`（id/生成组/
+  碰撞箱），`import-dump` 写进 `<pack>-ids.json` 的 `entities`；`inspect` 从
+  `tags/entity_type/bosses.json` 读 boss 名单并带上实体中英文名。宿主因此能把
+  `unknown` 叫成「娜迦（twilightforest:naga）」并按 `monster` 组判敌对。
+  战术仍由她现场决定，清单只给事实。
 - **registry-dump 快路径（主线，随包内置）**：接包从逐状态数小时降到秒级；
   `onboard` 自动优先用它，`calibrate` 只在没有服务器文件权限时作为退路。
   dump jar 不自动安装，装/删由人决定。
@@ -123,8 +132,9 @@ node modsmith/bin/modsmith.mjs inspect path/to/mod.jar --out ./mods
   方块计数/可站格/门）、`place.face`（壁挂装饰）。真机验收：她在两间不同材质的
   5×5 房间里自己扫房、选材、贴出 **25 件装饰 + 两条横梁 + 两个遮阳篷**，并把
   暖/冷两套风格写进笔记。
-- **P3 冒险**：TF 4.8.796 Fabric jar 已下载，下一步建独立 TF 服接包；实体/战利品表
-  读取是它当"冒险包"的前置缺口。
+- **P3 冒险**：TF 4.8.796 已接入生产服（523 方块 / 540 条配方 / 9 个 boss）。
+  实体名与 boss 标记已进清单，`mc_entities` 能报"是谁、多远、是否敌对"；剩下的是
+  维度传送与战利品表读取。
 - 完整阶段与依赖见 [ROADMAP.md](ROADMAP.md)。
 
 **兼容性说明**
@@ -142,9 +152,9 @@ calibrate / probe / verify 是在**你自己的服务器上动手**：`forceload
 
 `templates/registry-dump` 是一个只读的服务端 Fabric mod：启动后把服务端真实注册表写成
 `config/modsmith-dump.json`，**不注册任何方块/物品**。jar 已随包内置
-（`templates/registry-dump/modsmith-dump-0.1.0.jar`，4KB），运行 `modsmith dump-jar`
+（`templates/registry-dump/modsmith-dump-0.1.2.jar`，4.6KB），运行 `modsmith dump-jar`
 可直接打印它的绝对路径；也可从
-[Release](https://github.com/xiaoxiao150/modsmith/releases/tag/registry-dump-v0.1.0) 下载。
+[Release](https://github.com/xiaoxiao150/modsmith/releases/tag/registry-dump-v0.1.2) 下载。
 
 装一次 → 启动 → 拿 dump → 停服删 jar：
 
@@ -154,8 +164,9 @@ modsmith import-dump config/modsmith-dump.json \
   --server-mods mods
 ```
 
-`import-dump` 只保留清单声明的方块/物品，剔除 vanilla 区间与重复 stateId。TF 这种
-523 方块 / 17255 状态的大包，从“逐状态 setblock 约 1.5 小时”变成秒级。
+`import-dump` 只保留清单声明的方块/物品，并收下这个命名空间的全部实体；剔除 vanilla
+区间（方块 stateId 与原版实体 id 0–129）与重复 stateId。TF 这种 523 方块 / 17255 状态
+的大包，从“逐状态 setblock 约 1.5 小时”变成秒级。
 
 ## 四步
 

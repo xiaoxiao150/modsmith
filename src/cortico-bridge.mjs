@@ -64,6 +64,23 @@ function materialOf(tags) {
   return 'default';
 }
 
+/**
+ * 服务端 SpawnGroup → prismarine 的实体 type。
+ *
+ * minecraft-data 里 `type` 决定 mineflayer 的 `entity.type`，也是宿主判"会不会打我"
+ * 的依据（hostile）。模组实体的原始生成组由 dump 给出，这里只做词表翻译。
+ */
+const SPAWN_GROUP_TYPE = {
+  monster: 'hostile',
+  creature: 'animal',
+  axolotls: 'animal',
+  ambient: 'ambient',
+  underground_water_creature: 'water_creature',
+  water_creature: 'water_creature',
+  water_ambient: 'water_creature',
+  misc: 'mob',
+};
+
 export function installModRegistry(bot, pack) {
   const reg = bot.registry;
   if (!reg?.blocksByStateId || !reg.itemsByName) throw new Error('registry 形状不对，注入中止');
@@ -218,7 +235,43 @@ export function installModRegistry(bot, pack) {
     }
   }
 
-  return { blocks, states, items };
+  // 模组实体：不注入的话，服务端发来的数字 id 在 mineflayer 里找不到名字，
+  // boss 在她眼里就是 "unknown"（实测：Naga 打死她，她连对方叫什么都不知道）。
+  // 数字 id 来自 registry-dump（0.1.2 起带 spawnGroup/碰撞箱）；老 dump 只有 id，
+  // 那就退回 mob 体型，名字仍然能认出来。
+  let entities = 0;
+  const seenEntityId = new Map();
+  for (const [name, spec] of Object.entries(ids.entities ?? {})) {
+    const id = Number(spec?.id);
+    if (!Number.isInteger(id) || id <= 0) continue;
+    if (reg.entitiesByName?.[name] || reg.entities?.[id] || seenEntityId.has(id)) continue;
+    seenEntityId.set(id, name);
+    const short = name.split(':')[1] ?? name;
+    const group = typeof spec.spawnGroup === 'string' ? spec.spawnGroup : 'misc';
+    // 老 dump 没有 spawnGroup：boss 按 hostile 处理（宁可当她该拔刀，也别当成无害动物）
+    const type = spec.spawnGroup ? (SPAWN_GROUP_TYPE[group] ?? 'mob')
+      : (spec.boss ? 'hostile' : 'mob');
+    const entry = {
+      id,
+      internalId: id,
+      name,
+      displayName: manifest.names?.[`entity.${short}`]?.zh
+        ?? manifest.names?.[`entity.${short}`]?.en
+        ?? short,
+      width: Number.isFinite(spec.width) ? spec.width : 0.6,
+      height: Number.isFinite(spec.height) ? spec.height : 1.8,
+      type,
+      category: group,
+      metadataKeys: [],
+      ...(spec.boss ? { boss: true } : {}),
+    };
+    reg.entities[id] = entry;
+    reg.entitiesByName[name] = entry;
+    reg.entitiesArray?.push(entry);
+    entities++;
+  }
+
+  return { blocks, states, items, entities };
 }
 
 /**

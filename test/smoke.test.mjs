@@ -134,6 +134,9 @@ test('inspect 能处理合成夹具（含旧版复数目录、tag 展开、作�
   assert.ok(r.manifest.crops.tiny_crop, 'tiny_crop 应被认成作物');
   // 中文名
   assert.equal(r.manifest.names['block.tiny_block'].zh, '小方块');
+  // 实体 tag 里的 boss + 实体显示名（她靠这两个把 unknown 叫成名字）
+  assert.deepEqual(r.manifest.bosses, ['tinymod:tiny_boss']);
+  assert.equal(r.manifest.names['entity.tiny_boss'].zh, '小老板');
   // 旧版复数 loot_tables/ 也要扫到
   assert.deepEqual(r.manifest.blocks['tinymod:tiny_block'].drops, ['tinymod:tiny_block']);
 });

@@ -11,7 +11,7 @@ import { writeManifest, manifestPaths } from '../src/manifest-io.mjs';
 import { VERSION } from '../src/index.mjs';
 
 /** 随包分发的只读注册表 dump mod；不自动安装，只告诉人路径。 */
-const DUMP_JAR = fileURLToPath(new URL('../templates/registry-dump/modsmith-dump-0.1.0.jar', import.meta.url));
+const DUMP_JAR = fileURLToPath(new URL('../templates/registry-dump/modsmith-dump-0.1.2.jar', import.meta.url));
 
 const USAGE = `modsmith ${VERSION} — 把 Fabric mod jar 变成机器人能用的语义清单
 
@@ -418,6 +418,10 @@ async function runCommand(args) {
       console.log(result.out);
       if (result.failed.length > 0) {
         console.error(`! ${result.failed.length} 项被剔除（dump 里没有/落在 vanilla 区间/重复），详见 ids.failed`);
+      }
+      if (!result.hasEntities) {
+        console.error('! 这份 dump 没有 entities（dump mod 0.1.1 及更早）：模组实体名仍会被认成 unknown；'
+          + '换 templates/registry-dump/modsmith-dump-0.1.2.jar 重新 dump 一次');
       }
       return;
     }

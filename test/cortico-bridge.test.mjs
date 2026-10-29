@@ -16,6 +16,9 @@ function fakeRegistry() {
     itemsByName: {},
     itemsArray: [],
     foodsByName: {},
+    entities: {},
+    entitiesByName: {},
+    entitiesArray: [],
   };
 }
 
@@ -28,7 +31,7 @@ test('方块与物品按实测 id 注入，返回数量', () => {
   const r = inject(reg,
     { blocks: { 'm:crate': { states: [{}] } }, items: { 'm:crate': {} }, names: { 'block.crate': { zh: '板条箱' } } },
     { blocks: { 'm:crate': [{ props: {}, stateId: 500 }] }, items: { 'm:crate': 900 } });
-  assert.deepEqual(r, { blocks: 1, states: 1, items: 1 });
+  assert.deepEqual(r, { blocks: 1, states: 1, items: 1, entities: 0 });
   assert.equal(reg.blocksByName['m:crate'].displayName, '板条箱');
   assert.equal(reg.blocksByStateId[500].name, 'm:crate');
   assert.equal(reg.itemsByName['m:crate'].id, 900);
@@ -101,6 +104,55 @@ test('食物只进 foodsByName：skillEat 靠它放行', () => {
     { blocks: {}, items: { 'm:pie': {} }, foods: ['m:pie'] },
     { blocks: {}, items: { 'm:pie': 700 } });
   assert.deepEqual(reg.foodsByName['m:pie'], { id: 700, name: 'm:pie', foodPoints: 4, saturation: 0.6, eatingTime: 32 });
+});
+
+test('模组实体注入名字/显示名/boss，monster 组映射成 hostile', () => {
+  const reg = fakeRegistry();
+  const r = inject(reg,
+    { blocks: {}, items: {}, names: { 'entity.naga': { zh: '纳迦' } } },
+    {
+      blocks: {},
+      items: {},
+      entities: {
+        'm:naga': { id: 158, spawnGroup: 'monster', width: 1.2, height: 2.5, boss: true },
+        'm:critter': { id: 159, spawnGroup: 'creature' },
+      },
+    });
+  assert.equal(r.entities, 2);
+  assert.deepEqual(reg.entitiesByName['m:naga'], {
+    id: 158,
+    internalId: 158,
+    name: 'm:naga',
+    displayName: '纳迦',
+    width: 1.2,
+    height: 2.5,
+    type: 'hostile',
+    category: 'monster',
+    metadataKeys: [],
+    boss: true,
+  });
+  assert.equal(reg.entitiesByName['m:critter'].type, 'animal');
+  assert.equal(reg.entities[159].name, 'm:critter');
+  assert.equal(reg.entitiesArray.length, 2);
+});
+
+test('老 dump 只有实体 id：boss 仍算敌对，非 boss 退回 mob', () => {
+  const reg = fakeRegistry();
+  inject(reg, { blocks: {}, items: {} }, {
+    entities: { 'm:naga': { id: 200, boss: true }, 'm:critter': { id: 201 } },
+  });
+  assert.equal(reg.entitiesByName['m:naga'].type, 'hostile');
+  assert.equal(reg.entitiesByName['m:critter'].type, 'mob');
+});
+
+test('实体 id 与已有名字冲突时不覆盖（错名比未知更糟）', () => {
+  const reg = fakeRegistry();
+  inject(reg, { blocks: {}, items: {} }, { entities: { 'm:boss': { id: 100 } } });
+  assert.equal(reg.entitiesByName['m:boss'].name, 'm:boss');
+  // 第二个包拿同一个数字 id、另一个名字来：不能把 100 改姓
+  inject(reg, { blocks: {}, items: {} }, { entities: { 'm:impostor': { id: 100 } } });
+  assert.equal(reg.entities[100].name, 'm:boss');
+  assert.equal(reg.entitiesByName['m:impostor'], undefined);
 });
 
 test('registry 形状不对就拒绝注入', () => {

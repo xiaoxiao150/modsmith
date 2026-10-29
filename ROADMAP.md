@@ -15,7 +15,7 @@
 | 天黑回家 | 无 | 能（走 goto、tp command，或干脆不回；事实已在快照/事件里） |
 | 家具装饰 | **一个家具包**（用户在找） | 工具已就绪（`mc_scan` / `mc_modblocks` / 蓝图），等包 |
 | 冒险陪跑 | 无（原版地形） | 能（mc_map / mc_check / 战斗技能） |
-| 冒险内容（暮色森林） | TF 1.21.1 Fabric jar（4.8.796） | 已通过 registry-dump 接入（523 方块 / 17255 状态 / 660 物品）；维度传送与实体/掉落待验 |
+| 冒险内容（暮色森林） | TF 1.21.1 Fabric jar（4.8.796） | 已通过 registry-dump 接入（523 方块 / 17255 状态 / 660 物品 / 540 配方）；9 个 boss 与实体名已进清单；维度传送与战利品表待验 |
 | 身体/表演 | 服务端皮肤 + 客户端资源包/模型 mod | Detailed Animations 是资源包（客户端可见） |
 
 ## P1 生活：她自己的日常（不装新 mod）
@@ -103,17 +103,19 @@
   `minecraft:wooden_slabs` 这类原版 tag 解析不出候选，`item_shelf` 之类配方装不进
   mineflayer 的配方表。这个应该做成 `inspect` 的可选步骤（TODO，不只对 Supplementaries）。
 
-## P3 冒险（TF jar 到位前先用原版）
+## P3 冒险（TF 已接入生产服）
 
 **现有工具足够她自己去**：`mc_map`（家/床/危险区/资源点）、`mc_view_map`、`mc_check`、
-`attack`（含撤退策略）、`goto`、`take/stow`、`place`（火把）。缺的只是 TF 数据：
+`mc_entities`（附近实体真名/距离/敌对/boss）、`attack`（含撤退策略）、`goto`、
+`take/stow`、`place`（火把）。
 
-- **A0 接包（jar 已下载：`twilightforest-fabric-1.21.1-4.8.796.jar`，30.8MB）**：
-  建独立 TF 服（不与 FD/Supplementaries 混服，免得多包互相位移再全量重测），
-  `inspect → calibrate --fresh → recipes → probe/learn/verify`；TF 是新维度，
-  `transit`/维度记忆要真跑。
-- **已知缺口**：modsmith 只读方块/物品/配方/作物；**实体（怪物）与战利品表没读**。
-  带新怪/掉落的地牢包先补这两块，否则“进得去、看不懂”。
+- **A0 接包（已落地）**：TF 4.8.796 与 FD/Supplementaries 同服运行；
+  registry-dump 0.1.2 一次导出方块/物品/实体，`inspect` 从 entity tag 读 boss 名单。
+  仍需真跑的是新维度：`transit`/维度记忆。
+- **已补**：实体名与 boss 标记（娜迦/巫妖/九头蛇等 9 个）进清单，`unknown` 不再出现；
+  `monster` 生成组映射成 hostile，战斗日志能写出对手名字。
+- **仍缺**：战利品表读取（`entityLoot`）。带新怪/掉落的地牢包先补这块，
+  否则“进得去、看不懂”。
 - **验收场景（原版可先做）**：跟她走 30 分钟，她自己看地图/路标、补火把食物、
   遇强敌先撤；能沿原路回“家”。
 
@@ -139,6 +141,6 @@
 ## 当前顺序
 
 1. P1 已验收；P2 首次布置已通过（13 件 + 横梁 + 遮阳篷，`place.face` 已补）
-2. 建独立 TF 服 → A0 接包（TF jar 已下载）；实体/战利品表读取随后补
+2. P3 已接包（TF 同服）；实体/boss 已可读，下一步维度传送与战利品表
 3. P2 深化：换一个房间/换一种风格，隔天问她上次用了什么木色（她自己的记忆）
 4. E/P5 按选型插入（Detailed Animations 作为客户端资源包叠加）

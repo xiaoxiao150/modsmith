@@ -13,6 +13,12 @@ import { vanillaBlockStateCeiling } from './recipes-join.mjs';
 import { fingerprintDir } from './server-fingerprint.mjs';
 
 /**
+ * 1.21.1 原版实体 id 上限（0..129）。模组实体必然注册在原版之后，落在原版区间里的
+ * 只可能是残留/坏 dump——收下就是给实体错名（错名比未知更糟）。
+ */
+const VANILLA_ENTITY_CEILING = 129;
+
+/**
  * @param {object} dump
  * @param {object} manifest
  * @param {{ceiling?: number}} [opts]
@@ -72,7 +78,34 @@ export function idsFromDump(dump, manifest, opts = {}) {
     items[name] = id;
   }
 
-  return { blocks, items, failed };
+  // 只收这个包自己命名空间的实体；boss 标记来自清单的 bosses（jar 里的 entity tag）
+  const entities = {};
+  const seenEntity = new Map();
+  const ns = String(manifest.namespace ?? '');
+  const bosses = new Set(manifest.bosses ?? []);
+  for (const [name, raw] of Object.entries(dump.entities ?? {})) {
+    if (!ns || !name.startsWith(`${ns}:`)) continue;
+    // 0.1.2 起是 { id, spawnGroup, width, height }；更早的 dump 只有裸数字
+    const id = Number(typeof raw === 'object' && raw !== null ? raw.id : raw);
+    if (!Number.isInteger(id) || id <= 0) continue;
+    if (id <= VANILLA_ENTITY_CEILING) {
+      failed.push({ entity: name, resp: `数字 id ${id} 落在原版实体区间（<= ${VANILLA_ENTITY_CEILING}）` });
+      continue;
+    }
+    const owner = seenEntity.get(id);
+    if (owner && owner !== name) continue;   // 数字 id 重复：先到先得，不猜
+    seenEntity.set(id, name);
+    const entry = { id };
+    if (typeof raw === 'object' && raw !== null) {
+      if (typeof raw.spawnGroup === 'string') entry.spawnGroup = raw.spawnGroup;
+      if (Number.isFinite(raw.width)) entry.width = raw.width;
+      if (Number.isFinite(raw.height)) entry.height = raw.height;
+    }
+    if (bosses.has(name)) entry.boss = true;
+    entities[name] = entry;
+  }
+
+  return { blocks, items, entities, failed };
 }
 
 /**
@@ -85,7 +118,7 @@ export function importDump(dumpPath, manifestPath, opts = {}) {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
   const mcv = String(opts.mcv ?? '1.21.1');
   const ceiling = vanillaBlockStateCeiling(mcv);
-  const { blocks, items, failed } = idsFromDump(dump, manifest, { ceiling });
+  const { blocks, items, entities, failed } = idsFromDump(dump, manifest, { ceiling });
   const ids = {
     mod: manifest.mod,
     version: manifest.version,
@@ -93,6 +126,7 @@ export function importDump(dumpPath, manifestPath, opts = {}) {
     method: 'registry-dump',
     blocks,
     items,
+    entities,
     failed,
   };
   if (opts.serverMods) {
@@ -101,5 +135,5 @@ export function importDump(dumpPath, manifestPath, opts = {}) {
   }
   const out = opts.idsPath ?? manifestPath.replace(/\.json$/, '-ids.json');
   writeFileSync(out, `${JSON.stringify(ids, null, 1)}\n`);
-  return { out, ids, failed };
+  return { out, ids, failed, hasEntities: Boolean(dump.entities && Object.keys(dump.entities).length > 0) };
 }
