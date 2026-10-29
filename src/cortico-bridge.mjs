@@ -10,6 +10,7 @@
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { harvestToolsFor, isDiggable, shapeTemplateOf, templateShapeId } from './block-shapes.mjs';
 
 let modsDir = null;
 
@@ -53,7 +54,7 @@ export function listPacks() {
 }
 
 /**
- * 把 manifest + 实测 id 合并进 bot.registry。
+ * 把 manifest + 实测 id 合并进 bot.registry.
  * 返回注入的方块/状态/物品数，供日志。
  */
 /** 从方块 tags 推 prismarine material：挖速/工具判定用，推不出就 default。 */
@@ -146,10 +147,11 @@ export function installModRegistry(bot, pack) {
       displayName: manifest.names?.[`block.${name.split(':')[1]}`]?.zh ?? name.split(':')[1],
       hardness: solid ? 1.5 : 0,
       boundingBox: solid ? 'block' : 'empty',
-      diggable: solid,
+      // 没有碰撞箱 ≠ 挖不动：作物、花、火把都要能挖。canDigBlock 读的就是这个字段。
+      diggable: isDiggable(name),
       transparent: !solid,
       material: materialOf(spec.tags ?? []),
-      harvestTools: {},
+      harvestTools: harvestToolsFor(reg, spec.tags ?? []),
       drops: spec.drops ?? [],
       minStateId: Math.min(...stateIds),
       maxStateId: Math.max(...stateIds),
@@ -171,17 +173,31 @@ export function installModRegistry(bot, pack) {
     entry.maxStateId = Math.max(...kept);
     entry.defaultState = Math.min(...kept);
 
+    if (shapes) {
+      const propsById = new Map(measured.map((m) => [m.stateId, m.props ?? {}]));
+      const template = shapeTemplateOf(name);
+      const emptyId = nextShapeId++;
+      shapes.shapes[emptyId] = [];
+      const fallbackId = box ? nextShapeId++ : emptyId;
+      if (box) shapes.shapes[fallbackId] = [[box[0], box[1], box[2], box[3], box[4], box[5]]];
+      const span = entry.maxStateId - entry.minStateId + 1;
+      const stateShapeIds = new Array(span).fill(fallbackId);
+      for (const id of kept) {
+        const fromTemplate = template ? templateShapeId(reg, template, propsById.get(id)) : null;
+        stateShapeIds[id - entry.minStateId] = fromTemplate ?? fallbackId;
+      }
+      shapes.blocks[name] = stateShapeIds;
+      // 模板给出的形状可能让原本 solid:false 的楼梯/台阶有碰撞；以真实形状为准。
+      const collides = stateShapeIds.some((id) => (shapes.shapes[id]?.length ?? 0) > 0);
+      entry.boundingBox = collides ? 'block' : 'empty';
+      entry.transparent = !collides;
+    }
+
     reg.blocks[entry.id] = entry;
     reg.blocksByName[name] = entry;
     reg.blocksArray.push(entry);
     for (const id of kept) reg.blocksByStateId[id] = entry;
 
-    if (shapes) {
-      const shape = box ? [[box[0], box[1], box[2], box[3], box[4], box[5]]] : [];
-      const shapeId = nextShapeId++;
-      shapes.shapes[shapeId] = shape;
-      shapes.blocks[name] = kept.map(() => shapeId);
-    }
     observed.push({ entry, min: entry.minStateId, span: Math.max(kept.length, spec.states?.length ?? 0) });
     blocks++;
     states += kept.length;
@@ -335,6 +351,9 @@ export function installMineflayerFixes(bot, opts = {}) {
   if (!emitter.__modsmithEmitGuard) {
     const origEmit = emitter.emit.bind(emitter);
     emitter.emit = function guardedEmit(event, ...args) {
+      // 只读验收/测量不需要命令树；大 mod 的树会让 minecraft-protocol 直接拒收
+      // （"impossible command tree"），在事件层吞掉比让整个 bot 崩掉好。
+      if (opts.dropCommands === true && event === 'declare_commands') return false;
       try {
         return origEmit(event, ...args);
       } catch (err) {

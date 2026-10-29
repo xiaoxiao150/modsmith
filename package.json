@@ -1,6 +1,6 @@
 {
   "name": "modsmith",
-  "version": "0.6.4",
+  "version": "0.7.0",
   "description": "Turn Fabric mod jars into semantic manifests + measured registry ids for mineflayer AI companions.",
   "type": "module",
   "license": "MIT",
@@ -43,12 +43,14 @@
     "templates/registry-dump/gradle.properties",
     "templates/registry-dump/settings.gradle",
     "templates/registry-dump/src/",
+    "templates/reference-bot/",
+    "docs/conformance/",
     "sidesheets/",
     "types/",
     "README.md",
     "AGENTS.md",
     "LICENSE",
-    "templates/registry-dump/modsmith-dump-0.1.0.jar"
+    "templates/registry-dump/modsmith-dump-0.1.2.jar"
   ],
   "engines": {
     "node": ">=22"
@@ -69,6 +71,7 @@
   },
   "dependencies": {
     "mineflayer": "^4.37.1",
+    "prismarine-registry": "^1.12.0",
     "vec3": "^0.2.0"
   },
   "peerDependencies": {

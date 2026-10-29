@@ -72,7 +72,7 @@ test('gap-fill 的 span 是声明状态数，不是实测 id 的宽度', () => {
   assert.equal(reg.blocksByStateId[102], undefined);
 });
 
-test('方块 entry 的 material 从 mineable tag 推，diggable 跟 solid', () => {
+test('方块 entry 的 material 从 mineable tag 推，diggable 不跟 solid 走', () => {
   const reg = fakeRegistry();
   inject(reg,
     {
@@ -85,7 +85,8 @@ test('方块 entry 的 material 从 mineable tag 推，diggable 跟 solid', () =
   assert.equal(reg.blocksByName['m:stone_like'].material, 'mineable/pickaxe');
   assert.equal(reg.blocksByName['m:stone_like'].diggable, true);
   assert.equal(reg.blocksByName['m:intangible'].material, 'default');
-  assert.equal(reg.blocksByName['m:intangible'].diggable, false);
+  // 作物/花/火把没有碰撞箱，但 canDigBlock 读 diggable——不能因为 solid:false 就判成挖不动
+  assert.equal(reg.blocksByName['m:intangible'].diggable, true);
 });
 
 test('碰撞形状注册进 blockCollisionShapes，物理才不会炸在 block.shapes 上', () => {
@@ -96,6 +97,38 @@ test('碰撞形状注册进 blockCollisionShapes，物理才不会炸在 block.s
   const shapeIds = reg.blockCollisionShapes.blocks['m:crate'];
   assert.equal(shapeIds.length, 1);
   assert.deepEqual(reg.blockCollisionShapes.shapes[shapeIds[0]], [[0, 0, 0, 1, 1, 1]]);
+});
+
+test('楼梯/台阶按原版模板取每个 state 的碰撞形状，不再整块当成空气', () => {
+  const reg = fakeRegistry();
+  reg.blocksByName['oak_stairs'] = {
+    states: [{ name: 'half', type: 'enum', num_values: 2, values: ['top', 'bottom'] }],
+  };
+  reg.blockCollisionShapes.blocks['oak_stairs'] = [700, 701];
+  reg.blockCollisionShapes.shapes[700] = [[0, 0.5, 0, 1, 1, 1]];
+  reg.blockCollisionShapes.shapes[701] = [[0, 0, 0, 1, 0.5, 1]];
+  inject(reg,
+    {
+      blocks: {
+        'm:canopy_stairs': {
+          states: [{ half: 'top' }, { half: 'bottom' }],
+          solid: false,
+          box: null,
+        },
+      },
+    },
+    {
+      blocks: {
+        'm:canopy_stairs': [
+          { props: { half: 'top' }, stateId: 500 },
+          { props: { half: 'bottom' }, stateId: 501 },
+        ],
+      },
+      items: {},
+    });
+  assert.deepEqual(reg.blockCollisionShapes.blocks['m:canopy_stairs'], [700, 701]);
+  assert.equal(reg.blocksByName['m:canopy_stairs'].boundingBox, 'block');
+  assert.equal(reg.blocksByStateId[500].name, 'm:canopy_stairs');
 });
 
 test('食物只进 foodsByName：skillEat 靠它放行', () => {

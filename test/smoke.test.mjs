@@ -140,3 +140,11 @@ test('inspect 能处理合成夹具（含旧版复数目录、tag 展开、作�
   // 旧版复数 loot_tables/ 也要扫到
   assert.deepEqual(r.manifest.blocks['tinymod:tiny_block'].drops, ['tinymod:tiny_block']);
 });
+
+test('模组模型继承原版 parent 时也能推出碰撞盒（TF 木板曾是 solid:false）', async () => {
+  const { vanillaParentBox } = await import('../src/block-shapes.mjs');
+  assert.deepEqual(vanillaParentBox('minecraft:block/cube_all'), [0, 0, 0, 1, 1, 1]);
+  assert.deepEqual(vanillaParentBox('minecraft:block/slab_top'), [0, 0.5, 0, 1, 1, 1]);
+  assert.deepEqual(vanillaParentBox('minecraft:block/stairs'), [0, 0, 0, 1, 0.5, 1]);
+  assert.equal(vanillaParentBox('minecraft:block/cross'), null);
+});

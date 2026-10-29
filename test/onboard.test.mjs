@@ -15,24 +15,25 @@ const SRV = { rconPassword: 'pw', port: 25565, host: '127.0.0.1' };
 
 test('七步排布：无产物、有服务器 → 全部待执行，参数分发正确', () => {
   const plan = onboardPlan({ jar: 'x.jar', pack: 'tiny-mod', server: SRV });
-  assert.deepEqual(plan.steps.map((s) => s.id), ['inspect', 'calibrate', 'probe', 'recipes', 'learn', 'verify', 'sidecar']);
+  assert.deepEqual(plan.steps.map((s) => s.id), ['inspect', 'conformance-manifest', 'calibrate', 'conformance', 'probe', 'recipes', 'learn', 'verify', 'sidecar']);
   for (const s of plan.steps) {
     assert.equal(s.done, false, `${s.id} 不该标记 done`);
     assert.equal(s.blocked, false, `${s.id} 不该 blocked：${s.reason}`);
   }
-  const calibrate = plan.steps[1];
+  const calibrate = plan.steps.find((s) => s.id === 'calibrate');
   assert.ok(calibrate.argv.includes('--rcon-password'), '服务器参数要传给 calibrate');
   assert.equal(calibrate.argv[calibrate.argv.indexOf('--ids') + 1], './mods/tiny-mod-ids.json');
-  const recipes = plan.steps[3];
+  const recipes = plan.steps.find((s) => s.id === 'recipes');
   assert.ok(recipes.argv.includes('--write'), 'recipes 默认写回');
-  const sidecar = plan.steps[6];
+  const sidecar = plan.steps.find((s) => s.id === 'sidecar');
   assert.ok(!sidecar.argv.includes('--no-build'), 'sidecar 默认编译');
 });
 
 test('缺 rcon-password：需服务器的步骤 blocked 并级联到后续', () => {
   const plan = onboardPlan({ jar: 'x.jar', pack: 'tiny-mod' });
   assert.equal(plan.steps[0].blocked, false, 'inspect 不需要服务器');
-  for (const s of plan.steps.slice(1)) {
+  assert.equal(plan.steps.find((s) => s.id === 'conformance-manifest').blocked, false, '清单契约检查不需要服务器');
+  for (const s of plan.steps.slice(1).filter((x) => x.id !== 'conformance-manifest')) {
     assert.equal(s.blocked, true, `${s.id} 应级联 blocked`);
     assert.ok(s.reason.length > 0);
   }
@@ -40,10 +41,10 @@ test('缺 rcon-password：需服务器的步骤 blocked 并级联到后续', () 
 
 test('--skip calibrate 不打断链条（人已有 ids 的场景）', () => {
   const plan = onboardPlan({ jar: 'x.jar', pack: 'tiny-mod', server: SRV, skip: ['calibrate'] });
-  const calibrate = plan.steps[1];
+  const calibrate = plan.steps.find((s) => s.id === 'calibrate');
   assert.equal(calibrate.blocked, false);
   assert.match(calibrate.reason, /--skip/);
-  assert.equal(plan.steps[2].blocked, false, 'probe 不该被显式跳过级联');
+  assert.equal(plan.steps.find((s) => s.id === 'probe').blocked, false, 'probe 不该被显式跳过级联');
 });
 
 test('--resume + 产物就位 → 对应步骤标记 done', () => {
@@ -52,15 +53,15 @@ test('--resume + 产物就位 → 对应步骤标记 done', () => {
     artifacts: { manifest: true, ids: true, serverRecipes: true },
   });
   assert.equal(plan.steps[0].done, true);
-  assert.equal(plan.steps[1].done, true);
-  assert.equal(plan.steps[3].done, true);
-  assert.equal(plan.steps[2].done, false, 'probe 没产物时不标 done');
+  assert.equal(plan.steps.find((s) => s.id === 'calibrate').done, true);
+  assert.equal(plan.steps.find((s) => s.id === 'recipes').done, true);
+  assert.equal(plan.steps.find((s) => s.id === 'probe').done, false, 'probe 没产物时不标 done');
 });
 
 test('--dry-recipes 与 --no-build 的传参', () => {
   const plan = onboardPlan({ jar: 'x.jar', pack: 'tiny-mod', server: SRV, dryRecipes: true, noBuild: true });
-  assert.ok(!plan.steps[3].argv.includes('--write'));
-  assert.ok(plan.steps[6].argv.includes('--no-build'));
+  assert.ok(!plan.steps.find((s) => s.id === 'recipes').argv.includes('--write'));
+  assert.ok(plan.steps.find((s) => s.id === 'sidecar').argv.includes('--no-build'));
 });
 
 test('CLI --plan 冒烟：不执行、退出 0、打印步骤', () => {
@@ -93,7 +94,7 @@ test('onboard：L3 步骤接进来了（probe 带 --scan-blocks、learn --infer�
     artifacts: {},
   });
   const ids = plan.steps.map((s) => s.id);
-  assert.deepEqual(ids, ['inspect', 'calibrate', 'probe', 'recipes', 'learn', 'verify', 'sidecar']);
+  assert.deepEqual(ids, ['inspect', 'conformance-manifest', 'calibrate', 'conformance', 'probe', 'recipes', 'learn', 'verify', 'sidecar']);
 
   const probe = plan.steps.find((s) => s.id === 'probe');
   assert.ok(probe.argv.includes('--scan-blocks'), `probe 要扫方块：${probe.argv.join(' ')}`);
@@ -225,18 +226,21 @@ test('onboard：有 dump 时用 import-dump 替代 calibrate，probe/verify 仍�
     jar: 'x.jar', pack: 'tiny-mod', server: SRV, dump: './dump.json',
   });
   const ids = plan.steps.map((s) => s.id);
-  assert.deepEqual(ids, ['inspect', 'ids', 'probe', 'recipes', 'learn', 'verify', 'sidecar']);
-  const idStep = plan.steps[1];
+  assert.deepEqual(ids, ['inspect', 'conformance-manifest', 'ids', 'conformance', 'probe', 'recipes', 'learn', 'verify', 'sidecar']);
+  const idStep = plan.steps.find((s) => s.id === 'ids');
   assert.equal(idStep.argv[0], 'import-dump');
   assert.ok(idStep.argv.includes('--manifest'));
   assert.ok(idStep.argv.includes('--ids'));
   assert.ok(plan.steps.some((s) => s.id === 'probe'));
   assert.ok(plan.steps.some((s) => s.id === 'verify'));
+  const conf = plan.steps.find((s) => s.id === 'conformance');
+  assert.ok(conf.argv.includes('--ids'));
+  assert.ok(conf.argv.includes('--json'));
 });
 
 test('onboard：只有 dump、没有 RCON 时，id 步可执行，probe/verify 仍被服务器卡住', () => {
   const plan = onboardPlan({ jar: 'x.jar', pack: 'tiny-mod', dump: './dump.json' });
   assert.equal(plan.steps[0].blocked, false, 'inspect 不需要服务器');
-  assert.equal(plan.steps[1].blocked, false, 'ids 只读 dump，不需要 RCON');
-  assert.equal(plan.steps[2].blocked, true, 'probe 仍需要服务器');
+  assert.equal(plan.steps.find((s) => s.id === 'ids').blocked, false, 'ids 只读 dump，不需要 RCON');
+  assert.equal(plan.steps.find((s) => s.id === 'probe').blocked, true, 'probe 仍需要服务器');
 });

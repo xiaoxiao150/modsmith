@@ -2,7 +2,7 @@
 /**
  * modsmith CLI。每个子命令都能单独跑，参数全显式，不读隐藏配置。
  */
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findExistingPack, inspectJar } from '../src/inspect.mjs';
@@ -48,6 +48,19 @@ const USAGE = `modsmith ${VERSION} — 把 Fabric mod jar 变成机器人能用�
 
   modsmith dump-jar
       打印随包分发的 registry-dump jar 绝对路径（不自动安装）。
+
+  modsmith conformance <manifest.json> [选项]
+      接包验收：manifest 契约 + ids 交叉 + 注入真实 registry 后的方块/形状/作物/
+      配方/实体行为。离线，不连服务器；失败退出码 1。
+
+      --ids <file>            ids.json（缺省自动找同名 -ids.json）
+      --server-mods <dir>     服务器 mods 目录：核对 ids 指纹
+      --mc-version <ver>      原版上限，默认 1.21.1
+      --json <file>           把完整报告写成 JSON
+      --manifest-only         只查清单，不查 ids/registry
+      --live                  连服务器，用真实 mineflayer bot 只读消费一遍
+                              （--host/--port/--username；不 setblock、不聊天）
+      --strict                warning 也算失败
 
   modsmith calibrate <manifest.json> [选项]
       连一台装好 mod 的服务器，用 /setblock + /give 量出每个方块状态与物品的数字 id。
@@ -395,6 +408,79 @@ async function cmdOnboard(args) {
   console.error('✓ onboard 全部步骤完成。侧车 jar 与站点配置在 sidecars/ 下——装不装进服务器由你决定（绝不自动装）。');
 }
 
+async function cmdConformance(args) {
+  const manifestPath = args._[1] ? resolve(args._[1]) : null;
+  if (!manifestPath) fatal('conformance 要给一个 manifest.json');
+  if (!existsSync(manifestPath)) fatal(`找不到 ${manifestPath}`);
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+  const jsonPath = typeof args.json === 'string' ? resolve(args.json) : null;
+  const mcv = typeof args['mc-version'] === 'string' ? args['mc-version'] : '1.21.1';
+  const serverMods = typeof args['server-mods'] === 'string' ? resolve(args['server-mods']) : undefined;
+  const manifestOnly = args['manifest-only'] === true;
+
+  let ids = null;
+  if (!manifestOnly) {
+    const idsPath = typeof args.ids === 'string'
+      ? resolve(args.ids)
+      : manifestPath.replace(/\.json$/, '-ids.json');
+    if (existsSync(idsPath)) ids = JSON.parse(readFileSync(idsPath, 'utf8'));
+    else if (typeof args.ids === 'string') fatal(`找不到 ${idsPath}`);
+    else console.error(`! 没找到 ${idsPath}：只查 manifest，ids/registry 行为未验`);
+  }
+
+  let registry = null;
+  // --live 时让真实的 bot 去注入/检查，避免同进程的离线 registry 先污染
+  // prismarine-registry 的 minecraft-data 缓存。
+  if (ids && args.live !== true) {
+    const mod = await import('prismarine-registry');
+    const create = mod.default ?? mod;
+    registry = create(mcv);
+  }
+  const { runConformance, summarize } = await import('../src/conformance.mjs');
+  const report = runConformance({ manifest, ids, registry, serverMods, mcv });
+  if (args.live === true) {
+    if (!ids) fatal('--live 需要 ids（先 import-dump 或 calibrate）');
+    try {
+      const { liveConformance } = await import('../src/conformance-live.mjs');
+      const live = await liveConformance({
+        manifest,
+        ids,
+        host: typeof args.host === 'string' ? args.host : '127.0.0.1',
+        port: Number(args.port ?? 25565),
+        username: typeof args.username === 'string' ? args.username : 'ModConform',
+        version: mcv,
+      });
+      report.live = live.bot;
+      report.registry = live.counts;
+      report.checks.push(...live.checks);
+    } catch (err) {
+      report.checks.push({
+        id: 'L1', level: 'fail', subject: 'live', message: `真机消费失败：${err.message}`,
+      });
+    }
+  }
+  report.summary = summarize(report.checks);
+  if (jsonPath) {
+    writeFileSync(jsonPath, `${JSON.stringify(report, null, 1)}\n`);
+    console.error(`报告：${jsonPath}`);
+  }
+  const { pass, warn, fail } = report.summary;
+  console.log(`[conformance] ${report.pack}: 通过 ${pass}，警告 ${warn}，失败 ${fail}`);
+  if (report.live) {
+    const p = report.live.position;
+    console.log(`[live] ${report.live.username} @ ${report.live.version} ${report.live.dimension}`
+      + (p ? ` (${p.x}, ${p.y}, ${p.z})` : '')
+      + (report.registry ? `；注册表 ${report.registry.blocks} 方块 / ${report.registry.entities} 实体` : ''));
+  }
+  for (const c of report.checks.filter((x) => x.level !== 'pass')) {
+    console.log(`${c.level === 'fail' ? '✗' : '~'} ${c.id} ${c.subject}: ${c.message}`);
+  }
+  if (fail > 0 || (args.strict === true && warn > 0)) {
+    console.error('✗ conformance 未通过：先修上面的 fail（onboard 会停在这里）');
+    process.exit(1);
+  }
+}
+
 /** 命令分发（main 与 onboard 的步骤执行共用；argv[0] 是命令名）。 */
 async function runCommand(args) {
   const cmd = args._[0];
@@ -405,6 +491,7 @@ async function runCommand(args) {
       return;
     }
     case 'inspect': return cmdInspect(args);
+    case 'conformance': return cmdConformance(args);
     case 'import-dump': {
       const dump = args._[1];
       const manifest = args.manifest;

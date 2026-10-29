@@ -1,0 +1,317 @@
+{
+ "pack": "twilightforest",
+ "summary": {
+  "pass": 38,
+  "warn": 13,
+  "fail": 0,
+  "total": 51
+ },
+ "checks": [
+  {
+   "id": "M1",
+   "level": "pass",
+   "subject": "manifest",
+   "message": "schema/validate 通过"
+  },
+  {
+   "id": "M1.warn",
+   "level": "warn",
+   "subject": "prompt",
+   "message": "没有 prompt：提示词里只会写「装了 X」"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "twilightforest:travellers_gear_modifier_shaped_recipe",
+   "message": "22 条自定义配方没有统一 result，配方视图不会消费（首条 twilightforest:add_modifier_to_travellers_gear/travellers_boots/auto_repair_modifier）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "twilightforest:travellers_gear_modifier_shapeless_recipe",
+   "message": "4 条自定义配方没有统一 result，配方视图不会消费（首条 twilightforest:add_modifier_to_travellers_gear/travellers_vest/arrow_magnetism_modifier）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "twilightforest:casket_repair_recipe",
+   "message": "1 条自定义配方没有统一 result，配方视图不会消费（首条 twilightforest:casket_repair_recipe）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "twilightforest:emperors_cloth_recipe",
+   "message": "1 条自定义配方没有统一 result，配方视图不会消费（首条 twilightforest:emperors_cloth_recipe）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "twilightforest:no_template_smithing",
+   "message": "1 条自定义配方没有统一 result，配方视图不会消费（首条 twilightforest:emperors_cloth_smithing）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "twilightforest:scepter_repair",
+   "message": "4 条自定义配方没有统一 result，配方视图不会消费（首条 twilightforest:equipment/fortification_scepter）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "twilightforest:essence_repair_recipe",
+   "message": "1 条自定义配方没有统一 result，配方视图不会消费（首条 twilightforest:essence_repair_recipe）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "twilightforest:magic_map_cloning_recipe",
+   "message": "1 条自定义配方没有统一 result，配方视图不会消费（首条 twilightforest:magic_map_cloning_recipe）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "twilightforest:maze_map_cloning_recipe",
+   "message": "1 条自定义配方没有统一 result，配方视图不会消费（首条 twilightforest:maze_map_cloning_recipe）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "twilightforest:moonworm_queen_repair_recipe",
+   "message": "1 条自定义配方没有统一 result，配方视图不会消费（首条 twilightforest:moonworm_queen_repair_recipe）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "twilightforest:uncrafting",
+   "message": "3 条自定义配方没有统一 result，配方视图不会消费（首条 twilightforest:relinquish_keepsakes）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "twilightforest:travellers_vest_gloves_merge_recipe",
+   "message": "1 条自定义配方没有统一 result，配方视图不会消费（首条 twilightforest:travellers_vest_gloves_merge_recipe）"
+  },
+  {
+   "id": "M6",
+   "level": "pass",
+   "subject": "recipes",
+   "message": "craftRecipeViews 329 条"
+  },
+  {
+   "id": "I5",
+   "level": "pass",
+   "subject": "server-mods",
+   "message": "服务器 mods 指纹对得上（7 个文件）"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "twilightforest:blackberry_bush",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "twilightforest:blightberry_bush",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "twilightforest:blueberry_bush",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R5",
+   "level": "pass",
+   "subject": "twilightforest:bold_castle_brick_stairs",
+   "message": "楼梯 top/bottom shape 不同"
+  },
+  {
+   "id": "R5",
+   "level": "pass",
+   "subject": "twilightforest:canopy_stairs",
+   "message": "楼梯 top/bottom shape 不同"
+  },
+  {
+   "id": "R5",
+   "level": "pass",
+   "subject": "twilightforest:castle_brick_stairs",
+   "message": "楼梯 top/bottom shape 不同"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "twilightforest:copper_oreberry",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R5",
+   "level": "pass",
+   "subject": "twilightforest:cracked_castle_brick_stairs",
+   "message": "楼梯 top/bottom shape 不同"
+  },
+  {
+   "id": "R5",
+   "level": "pass",
+   "subject": "twilightforest:cracked_nagastone_stairs_left",
+   "message": "楼梯 top/bottom shape 不同"
+  },
+  {
+   "id": "R5",
+   "level": "pass",
+   "subject": "twilightforest:cracked_nagastone_stairs_right",
+   "message": "楼梯 top/bottom shape 不同"
+  },
+  {
+   "id": "R5",
+   "level": "pass",
+   "subject": "twilightforest:dark_stairs",
+   "message": "楼梯 top/bottom shape 不同"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "twilightforest:duskberry_bush",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R5",
+   "level": "pass",
+   "subject": "twilightforest:encased_castle_brick_stairs",
+   "message": "楼梯 top/bottom shape 不同"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "twilightforest:essence_oreberry",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "twilightforest:gold_oreberry",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "twilightforest:iron_oreberry",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "twilightforest:maloberry_bush",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R5",
+   "level": "pass",
+   "subject": "twilightforest:mangrove_stairs",
+   "message": "楼梯 top/bottom shape 不同"
+  },
+  {
+   "id": "R5",
+   "level": "pass",
+   "subject": "twilightforest:mining_stairs",
+   "message": "楼梯 top/bottom shape 不同"
+  },
+  {
+   "id": "R5",
+   "level": "pass",
+   "subject": "twilightforest:mossy_castle_brick_stairs",
+   "message": "楼梯 top/bottom shape 不同"
+  },
+  {
+   "id": "R5",
+   "level": "pass",
+   "subject": "twilightforest:mossy_nagastone_stairs_left",
+   "message": "楼梯 top/bottom shape 不同"
+  },
+  {
+   "id": "R5",
+   "level": "pass",
+   "subject": "twilightforest:mossy_nagastone_stairs_right",
+   "message": "楼梯 top/bottom shape 不同"
+  },
+  {
+   "id": "R5",
+   "level": "pass",
+   "subject": "twilightforest:nagastone_stairs_left",
+   "message": "楼梯 top/bottom shape 不同"
+  },
+  {
+   "id": "R5",
+   "level": "pass",
+   "subject": "twilightforest:nagastone_stairs_right",
+   "message": "楼梯 top/bottom shape 不同"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "twilightforest:raspberry_bush",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "twilightforest:skyberry_bush",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R5",
+   "level": "pass",
+   "subject": "twilightforest:sorting_stairs",
+   "message": "楼梯 top/bottom shape 不同"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "twilightforest:stingberry_bush",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R5",
+   "level": "pass",
+   "subject": "twilightforest:time_stairs",
+   "message": "楼梯 top/bottom shape 不同"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "twilightforest:torchberry_plant",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R5",
+   "level": "pass",
+   "subject": "twilightforest:transformation_stairs",
+   "message": "楼梯 top/bottom shape 不同"
+  },
+  {
+   "id": "R5",
+   "level": "pass",
+   "subject": "twilightforest:twilight_oak_stairs",
+   "message": "楼梯 top/bottom shape 不同"
+  },
+  {
+   "id": "R5",
+   "level": "pass",
+   "subject": "twilightforest:worn_castle_brick_stairs",
+   "message": "楼梯 top/bottom shape 不同"
+  },
+  {
+   "id": "R6",
+   "level": "pass",
+   "subject": "recipes",
+   "message": "329 条可消费配方"
+  },
+  {
+   "id": "R7",
+   "level": "pass",
+   "subject": "entities",
+   "message": "80 个实体已注入"
+  }
+ ]
+}

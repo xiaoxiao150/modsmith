@@ -1,0 +1,227 @@
+{
+ "pack": "supplementaries",
+ "summary": {
+  "pass": 16,
+  "warn": 20,
+  "fail": 0,
+  "total": 36
+ },
+ "checks": [
+  {
+   "id": "M1",
+   "level": "pass",
+   "subject": "manifest",
+   "message": "schema/validate 通过"
+  },
+  {
+   "id": "M5",
+   "level": "warn",
+   "subject": "rope_tomatoes",
+   "message": "seed supplementaries:rope_tomatoes 不在 items 里"
+  },
+  {
+   "id": "M5",
+   "level": "warn",
+   "subject": "stick_tomatoes",
+   "message": "seed supplementaries:stick_tomatoes 不在 items 里"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "supplementaries:antique_book",
+   "message": "2 条自定义配方没有统一 result，配方视图不会消费（首条 supplementaries:antique_book）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "supplementaries:weathered_map",
+   "message": "2 条自定义配方没有统一 result，配方视图不会消费（首条 supplementaries:antique_map）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "supplementaries:bamboo_spikes_tipped",
+   "message": "1 条自定义配方没有统一 result，配方视图不会消费（首条 supplementaries:bamboo_spikes_tipped）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "supplementaries:blackboard_duplicate",
+   "message": "1 条自定义配方没有统一 result，配方视图不会消费（首条 supplementaries:blackboard_duplicate）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "smithing_trim",
+   "message": "1 条自定义配方没有统一 result，配方视图不会消费（首条 supplementaries:blast_armor_trim_smithing_template_smithing_trim）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "supplementaries:confetti_dye",
+   "message": "1 条自定义配方没有统一 result，配方视图不会消费（首条 supplementaries:confetti_popper_dye）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "supplementaries:flag_from_banner",
+   "message": "1 条自定义配方没有统一 result，配方视图不会消费（首条 supplementaries:flags/flag_from_banner）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "farmersdelight:cutting",
+   "message": "6 条自定义配方没有统一 result，配方视图不会消费（首条 supplementaries:integration/ash_bricks_salvaging_fd）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "create:mixing",
+   "message": "1 条自定义配方没有统一 result，配方视图不会消费（首条 supplementaries:integration/lumisene_mixing）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "create:haunting",
+   "message": "1 条自定义配方没有统一 result，配方视图不会消费（首条 supplementaries:integration/sconce_haunting）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "create:splashing",
+   "message": "1 条自定义配方没有统一 result，配方视图不会消费（首条 supplementaries:integration/tipped_spikes_washing）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "supplementaries:item_lore",
+   "message": "2 条自定义配方没有统一 result，配方视图不会消费（首条 supplementaries:item_lore）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "jeed:effect_provider",
+   "message": "2 条自定义配方没有统一 result，配方视图不会消费（首条 supplementaries:jeed/flammable）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "jeed:potion_provider",
+   "message": "1 条自定义配方没有统一 result，配方视图不会消费（首条 supplementaries:jeed/tipped_spikes_potion_provider）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "supplementaries:present_dye",
+   "message": "1 条自定义配方没有统一 result，配方视图不会消费（首条 supplementaries:present_dye）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "supplementaries:safe",
+   "message": "1 条自定义配方没有统一 result，配方视图不会消费（首条 supplementaries:safe）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "supplementaries:soap_clearing",
+   "message": "1 条自定义配方没有统一 result，配方视图不会消费（首条 supplementaries:soap/clear）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "supplementaries:trapped_present",
+   "message": "1 条自定义配方没有统一 result，配方视图不会消费（首条 supplementaries:trapped_present）"
+  },
+  {
+   "id": "M6",
+   "level": "pass",
+   "subject": "recipes",
+   "message": "craftRecipeViews 257 条"
+  },
+  {
+   "id": "I5",
+   "level": "pass",
+   "subject": "server-mods",
+   "message": "服务器 mods 指纹对得上（7 个文件）"
+  },
+  {
+   "id": "R5",
+   "level": "pass",
+   "subject": "supplementaries:ash_bricks_stairs",
+   "message": "楼梯 top/bottom shape 不同"
+  },
+  {
+   "id": "R5",
+   "level": "pass",
+   "subject": "supplementaries:blackstone_tile_stairs",
+   "message": "楼梯 top/bottom shape 不同"
+  },
+  {
+   "id": "R5",
+   "level": "pass",
+   "subject": "supplementaries:fine_wood_stairs",
+   "message": "楼梯 top/bottom shape 不同"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "supplementaries:flax",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "supplementaries:flax_block",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R5",
+   "level": "pass",
+   "subject": "supplementaries:lapis_bricks_stairs",
+   "message": "楼梯 top/bottom shape 不同"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "supplementaries:potted_flax",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "supplementaries:rope_tomatoes",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "supplementaries:stick_tomatoes",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R5",
+   "level": "pass",
+   "subject": "supplementaries:stone_tile_stairs",
+   "message": "楼梯 top/bottom shape 不同"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "supplementaries:wild_flax",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R6",
+   "level": "pass",
+   "subject": "recipes",
+   "message": "257 条可消费配方"
+  },
+  {
+   "id": "R7",
+   "level": "pass",
+   "subject": "entities",
+   "message": "16 个实体已注入"
+  }
+ ]
+}

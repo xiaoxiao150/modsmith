@@ -17,6 +17,7 @@ import { craftRecipeViews } from './recipes-view.mjs';
 import { vanillaItemTable } from './recipes-join.mjs';
 import { discoverSerializers, sidesheetFromDiscovery } from './recipes-discover.mjs';
 import { buildRecipeGraph, planTarget, outputOf, outputCountOf, canMake } from './plan.mjs';
+import { checkManifest, checkIds, checkRegistry, runConformance, summarize } from './conformance.mjs';
 
 export { inspectJar, readSidecar, writeSidecar, sidecarTemplateFrom, writeManifest };
 
@@ -28,6 +29,7 @@ export {
   checkServerMods, fingerprintDir, craftRecipeViews, vanillaItemTable,
   discoverSerializers, sidesheetFromDiscovery,
   buildRecipeGraph, planTarget, outputOf, outputCountOf, canMake,
+  checkManifest, checkIds, checkRegistry, runConformance, summarize,
 };
 
-export const VERSION = '0.6.3';
+export const VERSION = '0.7.0';

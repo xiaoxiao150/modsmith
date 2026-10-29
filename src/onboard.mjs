@@ -1,5 +1,5 @@
 /**
- * modsmith onboard <jar> —— 把六步串成一条命令：
+ * modsmith onboard <jar> —— 把九步串成一条命令：
  *   inspect → calibrate → probe → verify → recipes → sidecar
  *
  * 每步的产物就是下一步的输入；哪步失败就停在哪（子命令自己 fatal 退出），绝不带病前进。
@@ -38,6 +38,7 @@ export function onboardPlan(opts) {
   const dir = modsDir.replace(/[\\/]+$/, '');
   const manifestPath = `${dir}/${pack}.json`;
   const idsPath = `${dir}/${pack}-ids.json`;
+  const conformancePath = `${dir}/${pack}-conformance.json`;
   // probe --scan-blocks 的证据落在这里，learn --infer 直接吃它。
   const probePath = `${dir}/${pack}-probe.json`;
   const srv = server ?? {};
@@ -79,7 +80,13 @@ export function onboardPlan(opts) {
     probePath,
     steps: [
       step('inspect', '静态提取清单', ['inspect', jar, '--out', modsDir, '--pack', pack], Boolean(artifacts.manifest), false),
+      // 清单先单独过一遍契约；ids 生成后再跑完整三层（含 registry）。
+      step('conformance-manifest', '清单契约检查', ['conformance', manifestPath, '--manifest-only'], false, false),
       idStep(),
+      // 接包验收：ids 一落地就查 manifest/ids/registry 三层；不过就停，不让 probe
+      // 和 sidecar 继续消费坏数据。离线、不连服务器。
+      step('conformance', '接包验收（离线）', ['conformance', manifestPath, '--ids', idsPath,
+        '--json', conformancePath, ...(srv.serverMods ? ['--server-mods', String(srv.serverMods)] : [])], false, false),
       // --scan-blocks：把候选方块逐个右键一遍，记录开窗行为——这是 learn --infer 的证据。
       step('probe', '实测容器/站点 + 方块扫描', ['probe', manifestPath, '--pack', pack, '--mods-dir', modsDir,
         '--scan-blocks', '--out', probePath, ...serverArgs], Boolean(artifacts.probe), true),

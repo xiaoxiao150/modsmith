@@ -12,7 +12,7 @@
     "max_age": 3,
     "age_prop": "age",
     "soils": ["minecraft:farmland", "farmersdelight:rich_soil_farmland"],
-    "aliases": ["budding_tomatoes", "tomatoes_on_rope"]
+    "aliases": ["tomatoes_on_rope"]
   },
   "onions": {
     "seed": "onion",

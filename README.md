@@ -95,8 +95,13 @@ node modsmith/bin/modsmith.mjs inspect path/to/mod.jar --out ./mods
 带服务器指纹，只对压缩包内 `SERVER-MODS.md` 那套完全相同的 mod 组合有效——
 换了 jar 请重新 dump/calibrate，不要混用。
 
-## 状态（0.6.4，AI 陪伴：生活 / 装饰 / 冒险）
+## 状态（0.7.0，AI 陪伴：生活 / 装饰 / 冒险）
 
+- **0.7.0（接包验收）**：新增 `modsmith conformance`（manifest/ids/registry 三层离线
+  检查）与只读 `--live` 参考消费；`onboard` 9 步里有两道早停。四包实测 0 fail，
+  报告在 [docs/conformance](docs/conformance/README.md)。碰撞/作物/实体规则收敛到
+  `block-shapes.mjs` 一份；TF 241 个假空气方块、`diggable` 绑 `solid`、番茄长苗
+  alias 都有回归。
 - **0.6.4（实体与 boss 可读）**：registry-dump 0.1.2 导出 `ENTITY_TYPE`（id/生成组/
   碰撞箱），`import-dump` 写进 `<pack>-ids.json` 的 `entities`；`inspect` 从
   `tags/entity_type/bosses.json` 读 boss 名单并带上实体中英文名。宿主因此能把
@@ -119,7 +124,7 @@ node modsmith/bin/modsmith.mjs inspect path/to/mod.jar --out ./mods
 - **inspect 契约修复（0.6.2）**：自定义序列化器把 `result` 写成字符串时统一收成
   `{id,count}`；原版 tag 可从服务器 jar 的 `data/minecraft/tags/` 展开并入
   `candidates`（`minecraft:wooden_slabs` 等），原版 tag 配方才装得进配方表。
-- **L2/L3 能力保持**：`onboard` 七步、`learn --infer`（默认合并人工站点、整段重推要
+- **L2/L3 能力保持**：`onboard` 九步（含两道 conformance 早停）、`learn --infer`（默认合并人工站点、整段重推要
   `--force`）、`verify --stations` 三种机制真执行、侧车熟成可跨重启、`probe --scan-blocks`
   全量窗口扫描。
 
@@ -168,6 +173,36 @@ modsmith import-dump config/modsmith-dump.json \
 区间（方块 stateId 与原版实体 id 0–129）与重复 stateId。TF 这种 523 方块 / 17255 状态
 的大包，从“逐状态 setblock 约 1.5 小时”变成秒级。
 
+## 接包验收（conformance）
+
+接包不再靠“陪玩一晚看崩不崩”。清单和 ids 一落地就跑一次离线验收：
+
+```bash
+modsmith conformance mods/<pack>.json \
+  --ids mods/<pack>-ids.json --server-mods mods
+```
+
+三层检查：
+
+- **manifest**：solid 必须有 box 或可映射形状、作物 alias 必须指向可收获阶段（不会把长苗当熟果）、配方 result/candidate 可解析；
+- **ids**：stateId 在原版区间外、无跨方块重复/重叠、item/entity id 在各自原版上限外、服务器指纹对得上；
+- **registry**：注入真实 prismarine 注册表后，每个 state 真的有 shape、楼梯上半/下半不同、作物 `diggable:true`、boss 真的进实体表、配方视图能消费。
+
+`onboard` 会自动跑这一步，失败就停在 probe/sidecar 之前；报告落在
+`mods/<pack>-conformance.json`。当前四个生产包离线检查都是 **0 fail**（警告是自定义
+序列化器/开门状态等已解释项）。
+
+要在一台真实服务器上只读验证一遍，加 `--live`：
+
+```bash
+modsmith conformance mods/<pack>.json --ids mods/<pack>-ids.json \
+  --server-mods mods --live --host 127.0.0.1 --port 25565
+```
+
+它会起一个临时 mineflayer bot（默认 `ModConform`），在 `inject_allowed` 前注入，
+检查方块形状/实体/boss 后退出；**不 setblock、不召唤、不聊天**，可以指向生产服。
+最小独立示例见 [`templates/reference-bot`](templates/reference-bot/README.md)。
+
 ## 四步
 
 先装：`npm i -g modsmith`（或每条命令前加 `npx`）。
@@ -192,7 +227,7 @@ modsmith learn    <manifest.json>     LLM 读清单 + wiki，产出站点定义�
 modsmith sidecar  <manifest.json>     给"服务端不开菜单"的站点生成侧车模组
 ```
 
-一条龙（六步按序串好，失败即停，`--resume` 断点续跑）：
+一条龙（九步按序串好，失败即停，`--resume` 断点续跑）：
 
 ```
 modsmith onboard <mod.jar> --pack <name> \
@@ -369,8 +404,9 @@ modsmith learn <manifest> --infer --evidence probe.json
 `verify --stations` **不静默跳过**：缺 `recipeType` 的、机制还没执行器的，都会显式报
 “已知但未验”，而不是从报告里消失。
 
-`onboard` 现在是 **7 步**：inspect → calibrate → probe（含方块扫描）→ recipes →
-learn（规则推断）→ verify（含站点实测）→ sidecar。`recipes` 排在 `learn`/`verify` 之前是
+`onboard` 现在是 **9 步**：inspect → conformance-manifest → calibrate/import-dump →
+conformance（ids+registry）→ probe（含方块扫描）→ recipes → learn（规则推断）→
+verify（含站点实测）→ sidecar。`recipes` 排在 `learn`/`verify` 之前是
 硬约束：jar 形状的配方里 `tool` 是对象（读不出刀后缀）、`cooking_time` 为空，先跑会把
 两步式误判成侧车、站点执行也会超时。
 

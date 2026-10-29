@@ -1,0 +1,209 @@
+{
+ "pack": "farmersdelight",
+ "summary": {
+  "pass": 31,
+  "warn": 2,
+  "fail": 0,
+  "total": 33
+ },
+ "checks": [
+  {
+   "id": "M1",
+   "level": "pass",
+   "subject": "manifest",
+   "message": "schema/validate 通过"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "farmersdelight:cutting",
+   "message": "105 条自定义配方没有统一 result，配方视图不会消费（首条 farmersdelight:cutting/beef）"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "smithing_trim",
+   "message": "18 条自定义配方没有统一 result，配方视图不会消费（首条 minecraft:sentry_armor_trim_smithing_template_smithing_trim）"
+  },
+  {
+   "id": "M6",
+   "level": "pass",
+   "subject": "recipes",
+   "message": "craftRecipeViews 1027 条"
+  },
+  {
+   "id": "I5",
+   "level": "pass",
+   "subject": "server-mods",
+   "message": "服务器 mods 指纹对得上（7 个文件）"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:beetroot_crate",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:budding_tomatoes",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:cabbage_crate",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:cabbages",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:carrot_crate",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:onion_crate",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:onions",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:potato_crate",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:pumpkin_pie",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:rice",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:rice_bag",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:rice_bale",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:rice_panicles",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:rice_roll_medley_block",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:stuffed_pumpkin_block",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:sweet_berry_cheesecake",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:tomato_crate",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:tomatoes",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:tomatoes_on_rope",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:wild_beetroots",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:wild_cabbages",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:wild_carrots",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:wild_onions",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:wild_potatoes",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:wild_rice",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R4",
+   "level": "pass",
+   "subject": "farmersdelight:wild_tomatoes",
+   "message": "作物可挖"
+  },
+  {
+   "id": "R6",
+   "level": "pass",
+   "subject": "recipes",
+   "message": "1027 条可消费配方"
+  },
+  {
+   "id": "R7",
+   "level": "pass",
+   "subject": "entities",
+   "message": "1 个实体已注入"
+  }
+ ]
+}

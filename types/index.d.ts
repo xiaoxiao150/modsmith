@@ -135,3 +135,40 @@ export function sidesheetFromDiscovery(
   result: DiscoveryResult,
   meta?: { mod?: string },
 ): Record<string, unknown>;
+
+/** 接包验收（conformance）的一条检查。 */
+export interface ConformanceCheck {
+  id: string;
+  level: 'pass' | 'warn' | 'fail';
+  subject: string;
+  message: string;
+  details?: unknown;
+}
+export interface ConformanceSummary {
+  pass: number;
+  warn: number;
+  fail: number;
+  total: number;
+}
+export interface ConformanceReport {
+  pack: string;
+  summary: ConformanceSummary;
+  checks: ConformanceCheck[];
+  live?: { username: string; version: string; dimension: string; position: unknown };
+  registry?: { blocks: number; states: number; items: number; entities: number };
+}
+export function checkManifest(manifest: object): ConformanceCheck[];
+export function checkIds(
+  manifest: object,
+  ids: object,
+  opts?: { blockStateCeiling?: number; itemCeiling?: number; entityCeiling?: number; serverMods?: string },
+): ConformanceCheck[];
+export function checkRegistry(manifest: object, ids: object, registry: object): ConformanceCheck[];
+export function summarize(checks: ConformanceCheck[]): ConformanceSummary;
+export function runConformance(opts: {
+  manifest: object;
+  ids?: object | null;
+  registry?: object | null;
+  serverMods?: string;
+  mcv?: string;
+}): ConformanceReport;

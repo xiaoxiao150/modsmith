@@ -61,6 +61,8 @@
   `manifest-io` / `calibrate-core` / `server-fingerprint` / `recipes` / `recipes-join` /
   `cortico-bridge` 的注入实现），测试覆盖它们；只有必须连服务器的（`calibrate` /
   `probe` / `verify` / `sidecar --build` / `recipes` 的捕获）才写 CLI 集成测试。
+- 清单/ids 改完先跑 `modsmith conformance`；`onboard` 已在 inspect 后和 ids 后自动跑，
+  fail 就停在 probe/sidecar 之前。碰撞/作物/实体规则只留在 `block-shapes.mjs` 一份。
 - **测试不许依赖本机路径**：用 `test/fixtures/tiny-mod.jar`（2.8KB 合成夹具，覆盖了
   单数/复数资源目录、tag 展开、作物推断、旧版 loot_tables）。
 - 每个真实事故都在 `test/` 里留一条回归。已经钉住的有：

@@ -14,6 +14,7 @@ import { inferCrops } from './crops.mjs';
 import { resolveMissingTags } from './tag-fallback.mjs';
 import { containerCandidates } from './containers.mjs';
 import { compareVersions, modVersionOf } from './version.mjs';
+import { boxForRef } from './block-shapes.mjs';
 
 /**
  * 包名：宿主配置里的 `worlds.minecraft.mods.pack` 要逐字对上这个字符串。
@@ -76,42 +77,11 @@ function boxFromModel(model, blockstates, name) {
   }
   if (blockstates?.multipart) {
     for (const part of blockstates.multipart) {
-      if (part?.apply?.model) refs.push(part.apply.model);
+      const applies = Array.isArray(part?.apply) ? part.apply : [part?.apply];
+      for (const apply of applies) if (apply?.model) refs.push(apply.model);
     }
   }
   return { refs, model };
-}
-
-/** 从 elements 里算整体包围盒（0..1 归一化，跟 prismarine 的 box 一致）。 */
-function boxFromElements(elements) {
-  if (!Array.isArray(elements) || elements.length === 0) return null;
-  let x0 = Infinity, y0 = Infinity, z0 = Infinity;
-  let x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
-  for (const el of elements) {
-    const [a, b] = el.from ?? [0, 0, 0];
-    const [c, d, e] = el.to ?? [16, 16, 16];
-    x0 = Math.min(x0, a); y0 = Math.min(y0, b); z0 = Math.min(z0, c);
-    x1 = Math.max(x1, c); y1 = Math.max(y1, d); z1 = Math.max(z1, e);
-  }
-  if (!Number.isFinite(x0)) return null;
-  return [x0 / 16, y0 / 16, z0 / 16, x1 / 16, y1 / 16, z1 / 16];
-}
-
-/** 顺着 model 的 parent 链找第一个带 elements 的（模型常常继承 cube_all 之类）。 */
-function resolveModel(materials, ref, depth = 0) {
-  if (!ref || depth > 8) return null;
-  const name = ref.includes(':') ? ref.split(':')[1] : ref;
-  const ns = ref.includes(':') ? ref.split(':')[0] : null;
-  const candidates = ns ? [`assets/${ns}/models/${name}.json`] : [`assets/${'__NS__'}/models/${name}.json`];
-  let json = null;
-  for (const c of candidates) {
-    json = materials.readJson(c);
-    if (json) break;
-  }
-  if (!json) return null;
-  if (Array.isArray(json.elements) && json.elements.length > 0) return json;
-  if (json.parent) return resolveModel(materials, json.parent, depth + 1);
-  return null;
 }
 
 /** 掉落表 → 物品名清单。 */
@@ -218,8 +188,7 @@ export function inspectJar(jarPath, opts = {}) {
     const { refs } = boxFromModel(null, bs, name);
     let box = null;
     for (const ref of refs) {
-      const model = resolveModel(zip, ref);
-      const b = boxFromElements(model?.elements);
+      const b = boxForRef(zip, ref);
       if (b) { box = b; break; }
     }
     const hasVariants = Object.keys(bs.variants ?? {}).length > 0;

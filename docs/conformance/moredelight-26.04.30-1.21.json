@@ -1,0 +1,47 @@
+{
+ "pack": "moredelight",
+ "summary": {
+  "pass": 4,
+  "warn": 2,
+  "fail": 0,
+  "total": 6
+ },
+ "checks": [
+  {
+   "id": "M1",
+   "level": "pass",
+   "subject": "manifest",
+   "message": "schema/validate 通过"
+  },
+  {
+   "id": "M1.warn",
+   "level": "warn",
+   "subject": "prompt",
+   "message": "没有 prompt：提示词里只会写「装了 X」"
+  },
+  {
+   "id": "M6",
+   "level": "warn",
+   "subject": "farmersdelight:cutting",
+   "message": "3 条自定义配方没有统一 result，配方视图不会消费（首条 casualness_delight:cutting/diced_potatoes）"
+  },
+  {
+   "id": "M6",
+   "level": "pass",
+   "subject": "recipes",
+   "message": "craftRecipeViews 30 条"
+  },
+  {
+   "id": "I5",
+   "level": "pass",
+   "subject": "server-mods",
+   "message": "服务器 mods 指纹对得上（7 个文件）"
+  },
+  {
+   "id": "R6",
+   "level": "pass",
+   "subject": "recipes",
+   "message": "30 条可消费配方"
+  }
+ ]
+}
