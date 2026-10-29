@@ -97,6 +97,10 @@ node modsmith/bin/modsmith.mjs inspect path/to/mod.jar --out ./mods
 
 ## 状态（0.7.0，AI 陪伴：生活 / 装饰 / 冒险）
 
+> 发布说明：npm registry 上的最新包仍是 **0.6.2**；0.7.0 目前以本仓库 / GitHub
+> release 为准（npm 发布账号还在安全暂停期）。不想等可以 `git clone` 后直接跑
+> `node bin/modsmith.mjs`。
+
 - **0.7.0（接包验收）**：新增 `modsmith conformance`（manifest/ids/registry 三层离线
   检查）与只读 `--live` 参考消费；`onboard` 9 步里有两道早停。四包实测 0 fail，
   报告在 [docs/conformance](docs/conformance/README.md)。碰撞/作物/实体规则收敛到
