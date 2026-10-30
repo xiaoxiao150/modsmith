@@ -19,6 +19,26 @@ const VANILLA_STATION_TYPES = new Set([
   'campfire_cooking', 'stonecutting', 'smithing_transform', 'smithing_trim',
 ]);
 
+/** verify --stations 真的会执行的三种机制。 */
+export const STATION_EXECUTORS = new Set(['sidecar-recipe', 'two-step-use', 'place-and-wait']);
+
+/**
+ * 站点为什么"已知但未验"（不是失败）：
+ *   - 机制没有执行器
+ *   - sidecar-recipe 的命令还没写回（没编译/没安装侧车）
+ * 缺 recipeType 不在这里——那是清单数据错误，调用方按失败报。
+ */
+export function stationSkipReason(station) {
+  if (!station?.recipeType) return null;
+  if (!STATION_EXECUTORS.has(station.kind)) {
+    return `机制 ${station.kind} 还没有执行器（已知但未验）`;
+  }
+  if (station.kind === 'sidecar-recipe' && !station.command) {
+    return '侧车命令没有写回（未编译/未安装）：已知但未验';
+  }
+  return null;
+}
+
 /** 配方类型 → 可能的方块名词干（类型词干之外再兜一层别名）。 */
 const STEM_ALIASES = {
   cooking: ['cooking_pot', 'pot', 'oven', 'stove'],
@@ -190,7 +210,8 @@ export function inferStations(manifest, opts = {}) {
       st.recipeType = type;
     }
     if (kind === 'sidecar-recipe') {
-      st.command = `/${id} cook {recipe}`;
+      // **不在这里写 command**：这时还没有侧车，写了就是让机器人去调一条不存在的命令
+      // （AGENTS 约束 2）。命令由 sidecar 编译成功后写回；没写回时 verify 报“已知但未验”。
       st.recipeType = type;
     }
     stations.push(st);

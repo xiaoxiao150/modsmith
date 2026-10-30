@@ -107,7 +107,9 @@ node modsmith/bin/modsmith.mjs inspect path/to/mod.jar --out ./mods
   `templateShapeId` 的 P0：状态索引应按**最后一个属性最快**变化，原实现反了，导致
   台阶 top/bottom 形状互换（楼梯同理）；`block-shapes.test.mjs` 已钉住。
   `onboard` 支持 `--serializers` 显式指 sidesheet；RCON socket 现在会 `close()`，
-  `onboard` 九步跑完后进程不再挂住。
+  `onboard` 九步跑完后进程不再挂住。`verify` 对没有写回命令的侧车站点显式报
+  “已知但未验”（不再是失败）；推断阶段也不再生成侧车命令，命令只由编译成功的
+  `sidecar` 写回。
 - **0.7.0（接包验收）**：新增 `modsmith conformance`（manifest/ids/registry 三层离线
   检查）与只读 `--live` 参考消费；`onboard` 9 步里有两道早停。四包实测 0 fail，
   报告在 [docs/conformance](docs/conformance/README.md)。碰撞/作物/实体规则收敛到

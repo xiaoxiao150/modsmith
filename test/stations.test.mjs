@@ -81,7 +81,8 @@ test('inferStations：两条真规则（工具→两步、无工具→侧车）�
   const byId = Object.fromEntries(stations.map((s) => [s.id, s]));
   assert.equal(byId.cooking_pot.kind, 'sidecar-recipe');
   assert.equal(byId.cooking_pot.recipeType, 'testmod:cooking');
-  assert.equal(byId.cooking_pot.command, '/cooking_pot cook {recipe}');
+  // 侧车命令只能由 sidecar 在编译成功后写回；推断阶段写了就等于指向不存在的命令。
+  assert.equal(byId.cooking_pot.command, undefined);
   assert.equal(byId.cutting_board.kind, 'two-step-use');
   assert.equal(byId.cutting_board.toolSuffix, '_knife');
   assert.equal(byId.drying_rack.kind, 'sidecar-recipe', '没有实测证据时不猜被动加工');
@@ -216,4 +217,21 @@ test('place-and-wait 站点必须带 recipeType，否则会被显式报出来（
   assert.equal(drying.kind, 'place-and-wait');
   // verify 要靠 recipeType 挑配方执行；缺了它就只能"已知但未验"。
   assert.equal(drying.recipeType, 'm:drying');
+});
+
+test('verify：侧车命令没写回时是“已知但未验”，不是失败', async () => {
+  const { stationSkipReason } = await import('../src/stations.mjs');
+  assert.match(
+    stationSkipReason({ id: 'cooking_pot', kind: 'sidecar-recipe', recipeType: 'm:cooking' }) ?? '',
+    /侧车命令没有写回/,
+  );
+  assert.match(
+    stationSkipReason({ id: 'x', kind: 'no-such-kind', recipeType: 'm:x' }) ?? '',
+    /还没有执行器/,
+  );
+  assert.equal(stationSkipReason({
+    id: 'cooking_pot', kind: 'sidecar-recipe', recipeType: 'm:cooking', command: '/cooking_pot cook {recipe}',
+  }), null, '命令写回了就应该真执行');
+  assert.equal(stationSkipReason({ id: 'cutting_board', kind: 'two-step-use', recipeType: 'm:cutting' }), null);
+  assert.equal(stationSkipReason({ id: 'broken', kind: 'sidecar-recipe' }), null, '缺 recipeType 交给调用方按失败报');
 });

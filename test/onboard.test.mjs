@@ -206,7 +206,7 @@ test('learn --infer 不把新配方类型并进人工站点（命令可能不认
   }
 });
 
-test('learn --infer --force 会整段重推（人工命令也覆盖，显式要求才允许）', async () => {
+test('learn --infer --force 会整段重推（人工命令也清掉，等 sidecar 重新写回）', async () => {
   const { learnStations } = await import('../src/learn.mjs');
   const { mkdtempSync, writeFileSync, readFileSync, rmSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
@@ -223,7 +223,7 @@ test('learn --infer --force 会整段重推（人工命令也覆盖，显式要�
     const r = await learnStations(p, { force: true }, io);
     assert.equal(r.ok, true);
     const after = JSON.parse(readFileSync(p, 'utf8'));
-    assert.equal(after.stations[0].command, '/cooking_pot cook {recipe}', '--force 才允许换成推断命令');
+    assert.equal(after.stations[0].command, undefined, '--force 清掉旧命令；sidecar 编译成功后才重新写回');
     assert.equal(after.stations[0].inferred, true);
   } finally {
     rmSync(dir, { recursive: true, force: true });

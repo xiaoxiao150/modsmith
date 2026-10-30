@@ -17,6 +17,7 @@ import { checkServerMods } from './server-fingerprint.mjs';
 import { makeRcon } from './rcon.mjs';
 import { fallbackTag } from './tag-fallback.mjs';
 import { vanillaItemTable } from './recipes-join.mjs';
+import { stationSkipReason } from './stations.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -64,6 +65,8 @@ export default async function cmdVerify(args, io) {
 
   const results = [];
   const add = (kind, ok, detail) => results.push({ kind, ok, detail });
+  // 已知但未验：不是通过，也不是失败；回执里显式列出来。
+  const skip = (kind, detail) => results.push({ kind, ok: null, skipped: true, detail });
 
   const cmd = await makeRcon(host, rconPort, rconPassword);
   const bot = mineflayer.createBot({ host, port, username, version: mcVersion, auth: 'offline' });
@@ -175,17 +178,17 @@ export default async function cmdVerify(args, io) {
       else add('station', false, `包里有过 ${blocks} 种方块但没有站点声明（先跑 learn --infer）`);
     }
     // **不许静默跳过**：以前这个 filter 把 place-and-wait 直接丢掉，报告里看不到任何
-    // 痕迹——那正是"静默失败"。现在没有 recipeType 的、以及执行器还没覆盖的类型，
-    // 都要显式列出来。
-    const EXECUTABLE = new Set(['sidecar-recipe', 'two-step-use', 'place-and-wait']);
+    // 痕迹——那正是"静默失败"。现在缺 recipeType 的按失败报，机制没执行器、侧车命令
+    // 没写回的按"已知但未验"显式列出（不伪装成通过，也不冤枉数据）。
     for (const st of all) {
       if (!st?.recipeType) {
         add('station', false, `${st?.id ?? '(无 id)'}：站点缺 recipeType，没法挑配方执行`);
-      } else if (!EXECUTABLE.has(st.kind)) {
-        add('station', false, `${st.id}：机制 ${st.kind} 还没有执行器（已知但未验）`);
+        continue;
       }
+      const why = stationSkipReason(st);
+      if (why) skip('station', `${st.id}：${why}`);
     }
-    const stations = all.filter((st) => EXECUTABLE.has(st.kind) && st.recipeType);
+    const stations = all.filter((st) => st.recipeType && !stationSkipReason(st));
 
     // 两步式站点：需要把物品放上去、再手持工具右键。用真实交互而不是命令，
     // 这样验的是"机器人能不能做得到"，不是"服务端能不能代做"。
@@ -446,17 +449,21 @@ export default async function cmdVerify(args, io) {
   bot.quit();
   cmd.close();
 
-  const failed = results.filter((r) => !r.ok);
+  const failed = results.filter((r) => r.ok === false);
+  const unverified = results.filter((r) => r.skipped === true);
   console.error(`\n=== verify ${manifest.mod} ===`);
-  for (const r of results) console.error(`  ${r.ok ? '✓' : '✗'} [${r.kind}] ${r.detail}`);
-  console.error(`\n${failed.length === 0 ? '全部通过' : `${failed.length} 项没过`}`);
+  for (const r of results) {
+    console.error(`  ${r.skipped ? '·' : r.ok ? '✓' : '✗'} [${r.kind}] ${r.detail}`);
+  }
+  console.error(`\n${failed.length === 0 ? '全部通过' : `${failed.length} 项没过`}`
+    + (unverified.length > 0 ? `；${unverified.length} 项已知但未验` : ''));
 
   if (typeof args.out === 'string') {
     const { writeIds } = await import('./manifest-io.mjs');
     writeIds(args.out, { mod: manifest.mod, verifiedAt: new Date().toISOString(), results });
   }
   if (failed.length > 0) process.exitCode = 1;
-  console.log(JSON.stringify({ mod: manifest.mod, failed: failed.length, results }, null, 2));
+  console.log(JSON.stringify({ mod: manifest.mod, failed: failed.length, unverified: unverified.length, results }, null, 2));
 }
 
 /**
